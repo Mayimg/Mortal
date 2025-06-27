@@ -1,0 +1,89 @@
+# Example training configuration for Mortal AI
+# This file contains recommended default values for training
+
+# ===== GRP (Game Result Predictor) Training Configuration =====
+# Save this section as config_grp.toml
+
+[control]
+version = 4
+state_file = 'models/grp.pth'
+enable_amp = false  # AMP can be unstable for GRP training
+print_states = true
+
+[grp.control]
+device = 'cuda:0'  # Change to 'cpu' if no GPU available
+batch_size = 512   # Reduce to 256 or 128 if OOM
+save_every = 2000
+print_every = 10
+val_interval = 100
+val_steps = 400
+
+[grp.dataset]
+train_globs = ['data/training/**/*.json.gz']  # Update with your data path
+val_globs = ['data/validation/**/*.json.gz']   # Update with your validation path
+enable_augmentation = true  # Rotates player perspectives for more training data
+file_batch_size = 50       # Number of files to load at once
+file_index = 'cache/grp_file_index.pth'
+
+[grp.network]
+hidden_size = 64   # GRU hidden size
+num_layers = 2     # Number of GRU layers
+
+[grp.optim]
+lr = 0.002         # Learning rate
+weight_decay = 0.00001
+
+# ===== Main Model Training Configuration =====
+# Save this section as config_main.toml
+
+[control]
+version = 4
+state_file = 'models/mortal.pth'
+steps = 1000000    # Total training steps
+batch_size = 512   # Reduce if OOM
+save_every = 10000 # Save checkpoint frequency
+print_every = 100
+device = 'cuda:0'
+enable_amp = true  # Faster training with mixed precision
+print_states = true
+
+[dataset]
+globs = ['data/training/**/*.json.gz']  # Update with your data path
+enable_augmentation = true
+file_batch_size = 30  # Reduce if OOM
+num_workers = 4       # Parallel data loading threads
+file_index = 'cache/main_file_index.pth'
+
+# Optional: Filter by player names
+# player_names_file = 'target_players.txt'
+# exclude_player_names_file = 'exclude_players.txt'
+
+[grp]
+state_file = 'models/grp.pth'  # Must point to trained GRP model
+
+[resnet]
+conv_channels = 192    # ResNet channel width
+num_blocks = 40        # ResNet depth
+initial_conv_channels = 64
+
+[cql]
+target_update_interval = 1000  # Target network update frequency
+min_q_weight = 5.0            # CQL regularization strength
+num_samples = 10              # CQL sampling
+
+[dqn]
+hidden_size = 1024    # DQN head hidden size
+
+[aux]
+hidden_size = 1024    # Auxiliary network hidden size
+
+[optim]
+lr = 0.00001          # Learning rate (very important!)
+weight_decay = 0.00001
+lr_scheduler = 'constant'  # or 'linear' for decay
+
+# Optional: Linear learning rate decay
+# [optim.linear]
+# init_lr = 0.00001
+# final_lr = 0.000001
+# duration = 900000

@@ -1,13 +1,13 @@
-import prelude
+from . import prelude
 
 import numpy as np
 import torch
 import secrets
 import os
-from model import Brain, DQN
-from engine import MortalEngine
-from libriichi.arena import OneVsThree
-from config import config
+from .model import Brain, DQN
+from .engine import MortalEngine
+from .libriichi.arena import OneVsThree
+from .config import config
 
 def main():
     cfg = config['1v3']

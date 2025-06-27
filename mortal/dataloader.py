@@ -2,10 +2,10 @@ import random
 import torch
 import numpy as np
 from torch.utils.data import IterableDataset
-from model import GRP
-from reward_calculator import RewardCalculator
-from libriichi.dataset import GameplayLoader
-from config import config
+from .model import GRP
+from .reward_calculator import RewardCalculator
+from .libriichi.dataset import GameplayLoader
+from .config import config
 
 class FileDatasetsIter(IterableDataset):
     def __init__(

@@ -1,16 +1,16 @@
-import prelude
+from . import prelude
 
 import os
 import sys
 import json
 import torch
 from datetime import datetime, timezone
-from model import Brain, DQN, GRP
-from engine import MortalEngine
-from common import filtered_trimmed_lines
-from libriichi.mjai import Bot
-from libriichi.dataset import Grp
-from config import config
+from .model import Brain, DQN, GRP
+from .engine import MortalEngine
+from .common import filtered_trimmed_lines
+from .libriichi.mjai import Bot
+from .libriichi.dataset import Grp
+from .config import config
 
 USAGE = '''Usage: python mortal.py <ID>
 

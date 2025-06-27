@@ -5,11 +5,11 @@ import shutil
 import secrets
 import logging
 from os import path
-from model import Brain, DQN
-from engine import MortalEngine
-from libriichi.stat import Stat
-from libriichi.arena import OneVsThree
-from config import config
+from .model import Brain, DQN
+from .engine import MortalEngine
+from .libriichi.stat import Stat
+from .libriichi.arena import OneVsThree
+from .config import config
 
 class TestPlayer:
     def __init__(self):

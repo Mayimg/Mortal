@@ -1,0 +1,35 @@
+[control]
+version = 4
+state_file = 'models/grp.pth'
+enable_amp = false
+print_states = true
+
+[grp]
+state_file = 'models/grp.pth'
+
+[grp.control]
+device = 'cuda:0'
+batch_size = 512
+save_every = 2000
+print_every = 10
+val_interval = 100
+val_steps = 400
+enable_cudnn_benchmark = true
+tensorboard_dir = 'logs/tensorboard_grp'
+
+[grp.dataset]
+train_globs = ['data/training/**/*.json.gz']
+# Note: validation directory doesn't exist yet. You'll need to create it and add validation data.
+# For now, pointing to a non-existent directory. Update this path when validation data is available.
+val_globs = ['data/validation/**/*.json.gz']
+enable_augmentation = true
+file_batch_size = 50
+file_index = 'cache/grp_file_index.pth'
+
+[grp.network]
+hidden_size = 64
+num_layers = 2
+
+[grp.optim]
+lr = 0.002
+weight_decay = 0.00001

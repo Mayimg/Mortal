@@ -1,4 +1,4 @@
-import prelude
+from . import prelude
 
 import random
 import torch
@@ -11,10 +11,10 @@ from torch.nn import functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_sequence
 from torch.utils.data import DataLoader, IterableDataset
 from torch.utils.tensorboard import SummaryWriter
-from model import GRP
-from libriichi.dataset import Grp
-from common import tqdm
-from config import config
+from .model import GRP
+from .libriichi.dataset import Grp
+from .common import tqdm
+from .config import config
 
 class GrpFileDatasetsIter(IterableDataset):
     def __init__(
@@ -72,11 +72,10 @@ def collate(batch):
         rank_by_players.append(rank_by_player)
 
     lengths = torch.tensor(lengths)
-    rank_by_players = torch.tensor(rank_by_players, dtype=torch.int64, pin_memory=True)
+    rank_by_players = torch.tensor(rank_by_players, dtype=torch.int64)
 
     padded = pad_sequence(inputs, batch_first=True)
     packed_inputs = pack_padded_sequence(padded, lengths, batch_first=True, enforce_sorted=False)
-    packed_inputs.pin_memory()
 
     return packed_inputs, rank_by_players
 
@@ -141,6 +140,7 @@ def train():
         drop_last = True,
         num_workers = 1,
         collate_fn = collate,
+        pin_memory = True,
     ))
 
     val_file_data = GrpFileDatasetsIter(
@@ -154,6 +154,7 @@ def train():
         drop_last = True,
         num_workers = 1,
         collate_fn = collate,
+        pin_memory = True,
     ))
 
     stats = {

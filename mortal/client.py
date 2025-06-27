@@ -1,4 +1,4 @@
-import prelude
+from . import prelude
 
 import logging
 import socket
@@ -7,10 +7,10 @@ import numpy as np
 import time
 import gc
 from os import path
-from model import Brain, DQN
-from player import TrainPlayer
-from common import send_msg, recv_msg
-from config import config
+from .model import Brain, DQN
+from .player import TrainPlayer
+from .common import send_msg, recv_msg
+from .config import config
 
 def main():
     remote = (config['online']['remote']['host'], config['online']['remote']['port'])

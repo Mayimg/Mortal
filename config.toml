@@ -1,0 +1,109 @@
+[control]
+version = 4
+state_file = 'models/mortal.pth'
+best_state_file = 'models/best.pth'
+tensorboard_dir = 'logs/tensorboard'
+steps = 100000
+batch_size = 512
+opt_step_every = 1
+save_every = 10000
+test_every = 10000
+submit_every = 10000
+print_every = 100
+device = 'cuda:0'
+enable_amp = true
+enable_cudnn_benchmark = true
+enable_compile = false
+print_states = true
+online = false
+
+[dataset]
+globs = ['data/training/**/*.json.gz']
+enable_augmentation = true
+file_batch_size = 30
+num_workers = 4
+file_index = 'cache/main_file_index.pth'
+reserve_ratio = 0.0
+num_epochs = 1
+augmented_first = false
+player_names_files = []
+
+[env]
+gamma = 1
+pts = [6.0, 4.0, 2.0, 0.0]
+
+[grp]
+state_file = 'models/grp.pth'  # 学習済みGRPモデルへのパス
+
+[grp.network]
+hidden_size = 64
+num_layers = 2
+
+[resnet]
+conv_channels = 192
+num_blocks = 40
+
+[cql]
+target_update_interval = 1000
+min_q_weight = 5.0
+num_samples = 10
+
+[dqn]
+hidden_size = 1024
+
+[aux]
+hidden_size = 1024
+next_rank_weight = 0.2
+
+[test_play]
+games = 3000
+log_dir = 'logs/test_play'
+
+[freeze_bn]
+mortal = false
+
+[optim]
+lr = 0.00001
+weight_decay = 0.00001
+lr_scheduler = 'constant'
+eps = 1e-8
+betas = [0.9, 0.999]
+max_grad_norm = 0
+
+[optim.scheduler]
+peak = 0.00001
+final = 0.00001
+warm_up_steps = 0
+max_steps = 1000000
+
+[baseline.test]
+device = 'cuda:0'
+enable_compile = false
+state_file = 'models/baseline.pth'
+
+[1v3]
+seed_key = -1  # -1 for random seed
+games_per_iter = 100
+iters = 1
+log_dir = 'logs/1v3_battles'
+
+[1v3.challenger]
+device = 'cuda:0'
+name = 'mortal_best'
+state_file = 'models/best.pth'
+stochastic_latent = false
+enable_compile = false
+enable_amp = true
+enable_rule_based_agari_guard = true
+
+[1v3.champion]
+device = 'cuda:0'
+name = 'mortal_baseline'
+state_file = 'models/mortal.pth'
+stochastic_latent = false
+enable_compile = false
+enable_amp = true
+enable_rule_based_agari_guard = true
+
+[1v3.akochan]
+enabled = false

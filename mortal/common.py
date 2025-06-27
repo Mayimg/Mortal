@@ -6,7 +6,7 @@ from typing import *
 from io import BytesIO
 from functools import partial
 from tqdm.auto import tqdm as orig_tqdm
-from config import config
+from .config import config
 
 tqdm = partial(orig_tqdm, unit='batch', dynamic_ncols=True, ascii=True)
 

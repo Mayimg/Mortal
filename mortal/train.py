@@ -1,5 +1,5 @@
 def train():
-    import prelude
+    from . import prelude
 
     import logging
     import sys
@@ -19,13 +19,13 @@ def train():
     from torch.nn.utils import clip_grad_norm_
     from torch.utils.data import DataLoader
     from torch.utils.tensorboard import SummaryWriter
-    from common import submit_param, parameter_count, drain, filtered_trimmed_lines, tqdm
-    from player import TestPlayer
-    from dataloader import FileDatasetsIter, worker_init_fn
-    from lr_scheduler import LinearWarmUpCosineAnnealingLR
-    from model import Brain, DQN, AuxNet
-    from libriichi.consts import obs_shape
-    from config import config
+    from .common import submit_param, parameter_count, drain, filtered_trimmed_lines, tqdm
+    from .player import TestPlayer
+    from .dataloader import FileDatasetsIter, worker_init_fn
+    from .lr_scheduler import LinearWarmUpCosineAnnealingLR
+    from .model import Brain, DQN, AuxNet
+    from .libriichi.consts import obs_shape
+    from .config import config
 
     version = config['control']['version']
 
@@ -440,7 +440,7 @@ def main():
     import sys
     import time
     from subprocess import Popen
-    from config import config
+    from .config import config
 
     # do not set this env manually
     is_sub_proc_key = 'MORTAL_IS_SUB_PROC'

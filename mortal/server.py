@@ -1,4 +1,4 @@
-import prelude
+from . import prelude
 
 import logging
 import shutil
@@ -12,8 +12,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from socketserver import ThreadingTCPServer, BaseRequestHandler
 from threading import Lock
-from common import send_msg, recv_msg, UnexpectedEOF
-from config import config
+from .common import send_msg, recv_msg, UnexpectedEOF
+from .config import config
 
 @dataclass
 class State:
