@@ -1,7 +1,7 @@
 [package]
 name = "libriichi"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 license = "AGPL-3.0-or-later"
 
 [lib]
@@ -28,7 +28,7 @@ derivative = "2"
 ahash = "0.8"
 parking_lot = "0.12"
 crossbeam = "0.8"
-pyo3 = { version = "0.25", features = ["auto-initialize", "multiple-pymethods", "anyhow"] }
+pyo3 = { version = "0.25", features = ["multiple-pymethods", "anyhow"] }
 indicatif = { version = "0.17", features = ["rayon"] }
 tinyvec = { version = "1", features = ["alloc", "serde", "rustc_1_57"] }
 serde = { version = "1", features = ["derive"] }

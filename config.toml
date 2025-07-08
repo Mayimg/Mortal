@@ -1,7 +1,7 @@
 [control]
 version = 4
-state_file = 'models/mortal.pth'
-best_state_file = 'models/best.pth'
+state_file = 'models/test_mortal.pth'
+best_state_file = 'models/test_best.pth'
 tensorboard_dir = 'logs/tensorboard'
 steps = 100000
 batch_size = 512
