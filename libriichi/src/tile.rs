@@ -250,11 +250,12 @@ impl Serialize for Tile {
 }
 
 impl fmt::Display for InvalidTile {
+    /// エラーメッセージの表示
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("not a valid tile: ")?;
         match self {
-            Self::Number(n) => fmt::Display::fmt(n, f),
-            Self::String(s) => write!(f, "not a valid tile: \"{s}\""),
+            Self::Number(n) => fmt::Display::fmt(n, f),              // 無効な数値の場合
+            Self::String(s) => write!(f, "not a valid tile: \"{s}\""),  // 無効な文字列の場合
         }
     }
 }

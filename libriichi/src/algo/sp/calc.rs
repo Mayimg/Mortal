@@ -1,86 +1,144 @@
+//! シングルプレイヤー麻雀の期待値計算エンジン
+//!
+//! このモジュールは、一人麻雀における打牌選択の期待値計算を行う
+//! コアロジックを実装しています。主な機能：
+//! - 各打牌候補の期待値・勝率・聴牌率の計算
+//! - 動的計画法による効率的な計算
+//! - 向聴戻しや手変わりの考慮
+//! - キャッシュによる高速化
+
+// 内部モジュールのインポート
 use super::candidate::RawCandidate;
 use super::state::{InitState, State};
 use super::tile::{DiscardTile, DrawTile};
 use super::{Candidate, CandidateColumn, MAX_TSUMOS_LEFT};
+// アガリ計算用
 use crate::algo::agari::{Agari, AgariCalculator};
+// 牌の型
 use crate::tile::Tile;
+// 牌生成マクロ
 use crate::{must_tile, t, tu8};
+// 参照カウント（メモリ効率化）
 use std::rc::Rc;
 
+// 高速ハッシュマップ
 use ahash::AHashMap;
+// エラー処理
 use anyhow::{Result, ensure};
 
+// 向聴数の閾値（3向聴まで詳細計算、4向聴以上は簡易計算）
 const SHANTEN_THRES: i8 = 3;
+// 最大残り牌数（全136枚 - 配牌14枚 - 王牌1枚）
 const MAX_TILES_LEFT: usize = 34 * 4 - 1 - 13;
 
 /// 裏ドラの乗る確率のテーブル
+/// [ドラ表示牌の枚数][手牌の枚数] = 確率
 const URADORA_PROB_TABLE: [[f32; 13]; 5] = include!("../data/uradora_prob_table.txt");
 
+// 状態キャッシュの型定義
+// 向聴数ごとに計算結果をキャッシュする
 type StateCache<const MAX_TSUMO: usize> =
     [AHashMap<State, Rc<Values<MAX_TSUMO>>>; SHANTEN_THRES as usize + 1];
 
+/// 各巡目の確率と期待値を保持する構造体
 struct Values<const MAX_TSUMO: usize> {
+    /// 各巡目の聴牌確率
     tenpai_probs: [f32; MAX_TSUMO],
+    /// 各巡目の和了確率
     win_probs: [f32; MAX_TSUMO],
+    /// 各巡目の期待値
     exp_values: [f32; MAX_TSUMO],
 }
 
+/// 計算結果を表す列挙型
 enum ScoresOrValues<const MAX_TSUMO: usize> {
-    // shanten == 0, and has yaku
+    /// テンパイかつ役ありの場合：[ツモ和了, ロン和了, リーチツモ, リーチロン]の点数
     Scores([f32; 4]),
-    // shanten > 0
+    /// 向聴数が1以上の場合：確率と期待値
     Values(Rc<Values<MAX_TSUMO>>),
 }
 
+/// シングルプレイヤー麻雀計算機の本体
+/// 
+/// ゲーム状態と計算設定を保持し、期待値計算を実行する
 #[derive(Debug)]
 pub struct SPCalculator<'a> {
-    // Immutable states, used in agari calculator.
+    // アガリ計算で使用する不変の状態
+    /// 手牌の長さ÷3（通常は4、カンした場合は3）
     pub tehai_len_div3: u8,
+    /// チーした牌の種類
     pub chis: &'a [u8],
+    /// ポンした牌の種類
     pub pons: &'a [u8],
+    /// 明カンした牌の種類
     pub minkans: &'a [u8],
+    /// 暗カンした牌の種類
     pub ankans: &'a [u8],
+    /// 場風（東=0, 南=1, 西=2, 北=3）
     pub bakaze: u8,
+    /// 自風（東=0, 南=1, 西=2, 北=3）
     pub jikaze: u8,
+    /// 門前かどうか
     pub is_menzen: bool,
 
-    /// Unlike others, fuuro here includes ankan.
+    /// 副露（暗カン含む）に含まれるドラの枚数
     pub num_doras_in_fuuro: u8,
+    /// ドラ表示牌のリスト
     pub dora_indicators: &'a [Tile],
+    /// ダブルリーチを計算するか
     pub calc_double_riichi: bool,
+    /// 海底・河底を計算するか
     pub calc_haitei: bool,
+    /// リーチを優先するか（ダマテンより）
     pub prefer_riichi: bool,
+    /// 結果をソートするか
     pub sort_result: bool,
 
-    /// 和了確率を最大化
+    /// 和了確率を最大化する（期待値より優先）
     pub maximize_win_prob: bool,
-    /// 手変わり考慮
+    /// 手変わりを考慮する
     pub calc_tegawari: bool,
-    /// 向聴落とし考慮
+    /// 向聴落としを考慮する
     pub calc_shanten_down: bool,
 }
 
+/// 計算中の内部状態を管理する構造体
+/// 
+/// const genericsを使用してコンパイル時最適化を実現
 struct SPCalculatorState<'a, const MAX_TSUMO: usize> {
+    /// 計算機本体への参照
     sup: &'a SPCalculator<'a>,
+    /// 現在のゲーム状態
     state: State,
 
+    /// ツモ確率テーブル（有効牌枚数ごと）
     tsumo_prob_table: &'a [[f32; MAX_TSUMO]; 4],
+    /// 非ツモ確率テーブル（有効牌総数ごと）
     not_tsumo_prob_table: &'a [[f32; MAX_TSUMO]; MAX_TILES_LEFT + 1],
 
+    /// 打牌後の状態キャッシュ（向聴数ごと）
     discard_cache: StateCache<MAX_TSUMO>,
+    /// ツモ後の状態キャッシュ（向聴数ごと）
     draw_cache: StateCache<MAX_TSUMO>,
 
+    /// C++版互換モード用：実際の最大ツモ数
     #[cfg(feature = "sp_reproduce_cpp_ver")]
     real_max_tsumo: usize,
 }
 
 impl SPCalculator<'_> {
-    /// Arguments:
-    /// - can_discard: whether the tehai is 3n+2 or not.
-    /// - tsumos_left: must be within [1, 17].
-    /// - cur_shanten: must be >= 0.
+    /// 期待値計算のメインメソッド
+    /// 
+    /// 現在の手牌状態から、各打牌候補の期待値・勝率・聴牌率を計算する
+    /// 
+    /// # Arguments
+    /// - `init_state`: 初期状態（手牌と見えている牌）
+    /// - `can_discard`: 打牌可能か（手牌が3n+2枚ならtrue）
+    /// - `tsumos_left`: 残りツモ回数（1〜17の範囲）
+    /// - `cur_shanten`: 現在の向聴数（0以上）
     ///
-    /// The return value will be sorted and index 0 will be the best choice.
+    /// # Returns
+    /// 打牌候補のリスト（ソート済み、index 0が最良の選択）
     pub fn calc(
         &self,
         init_state: InitState,
@@ -88,27 +146,32 @@ impl SPCalculator<'_> {
         tsumos_left: u8,
         cur_shanten: i8,
     ) -> Result<Vec<Candidate>> {
+        // 入力値の検証
         ensure!(cur_shanten >= 0, "can't calculate an agari hand");
         ensure!(tsumos_left >= 1, "need at least one more tsumo");
         ensure!(tsumos_left <= MAX_TSUMOS_LEFT as u8);
 
+        // 最大ツモ数の決定
         #[cfg(feature = "sp_reproduce_cpp_ver")]
-        let max_tsumo = if can_discard { 17 } else { 18 };
+        let max_tsumo = if can_discard { 17 } else { 18 }; // C++版互換
         #[cfg(not(feature = "sp_reproduce_cpp_ver"))]
-        let max_tsumo = tsumos_left as usize;
+        let max_tsumo = tsumos_left as usize; // 実際の残りツモ数を使用
 
+        // 初期状態から計算用状態への変換
         let state = State::from(init_state);
         let n_left_tiles = state.sum_left_tiles() as usize;
 
-        // Despite the bloating binary size, the use of const generics here may
-        // help eliminate branches (eg. bound checks) and reduce buffer space,
-        // and allow more aggressive loop unroll and vectorization.
+        // const genericsを使用したコンパイル時最適化
+        // バイナリサイズは増加するが、分岐削減・バッファ削減・
+        // ループアンロール・ベクトル化などの最適化が期待できる
         macro_rules! static_expand {
             ($($n:literal),*) => {
                 match max_tsumo {
                     $($n => {
+                        // 確率テーブルの構築
                         let tsumo_prob_table = build_tsumo_prob_table(n_left_tiles);
                         let not_tsumo_prob_table = build_not_tsumo_prob_table(n_left_tiles);
+                        // 計算状態の初期化
                         let mut calc_state = SPCalculatorState::<$n> {
                             sup: self,
                             state,
@@ -119,47 +182,60 @@ impl SPCalculator<'_> {
                             #[cfg(feature = "sp_reproduce_cpp_ver")]
                             real_max_tsumo: tsumos_left as usize,
                         };
+                        // 計算実行
                         calc_state.calc(can_discard, cur_shanten)
                     },)*
                     _ => unreachable!(),
                 }
             }
         }
+        // マクロを使用して各ツモ数に対応した関数を生成
         #[cfg(feature = "sp_reproduce_cpp_ver")]
-        let candidates = static_expand!(17, 18);
+        let candidates = static_expand!(17, 18); // C++版は17,18のみ
         #[cfg(not(feature = "sp_reproduce_cpp_ver"))]
-        let candidates = static_expand!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+        let candidates = static_expand!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17); // 全パターン
         Ok(candidates)
     }
 }
 
+/// ツモ確率テーブルを構築
+/// 
+/// 有効牌の枚数ごとに、各巡目で有効牌を引ける確率を事前計算
+/// 
+/// # Returns
+/// table[i][j] = 有効牌が(i+1)枚の場合にj巡目に有効牌を引ける確率
 fn build_tsumo_prob_table<const MAX_TSUMO: usize>(n_left_tiles: usize) -> [[f32; MAX_TSUMO]; 4] {
     let mut table = [[0.; MAX_TSUMO]; 4];
-    // 有効牌の枚数ごとに、この巡目で有効牌を引ける確率のテーブルを作成する。
-    // tumo_prob_table_[i][j] = 有効牌の枚数が i + 1 枚の場合に j 巡目に有効牌が引ける確率
+    // 有効牌の枚数ごとに確率を計算
     for (i, row) in table.iter_mut().enumerate() {
         for (j, v) in row.iter_mut().enumerate() {
+            // j巡目での確率 = 有効牌数 / (残り牌総数 - すでに引いた枚数)
             *v = (i + 1) as f32 / (n_left_tiles - j) as f32;
         }
     }
     table
 }
 
+/// 非ツモ確率テーブルを構築
+/// 
+/// 有効牌の総枚数ごとに、指定巡目までに有効牌を引けない確率を事前計算
+/// 
+/// # Returns
+/// table[i][j] = 有効牌がi枚の場合に(j-1)巡目までに有効牌を引けなかった確率
 fn build_not_tsumo_prob_table<const MAX_TSUMO: usize>(
     n_left_tiles: usize,
 ) -> [[f32; MAX_TSUMO]; MAX_TILES_LEFT + 1] {
     let mut table = [[0.; MAX_TSUMO]; MAX_TILES_LEFT + 1];
-    // 有効牌の合計枚数ごとに、これまでの巡目で有効牌が引けなかった確率のテーブルを作成する。
-    // not_tumo_prob_table_[i][j] = 有効牌の合計枚数が i 枚の場合に j - 1 巡目までに有効牌が引けなかった確率
-    //
-    // The original version has only `n_left_tiles` rows, which can actually
-    // overflow for hands like 9999m6677p88s335z that can be improved by all
-    // kinds of tiles, and the number of all tiles left will be exactly
-    // `n_left_tiles`. A test case covers this.
+    
+    // 元のC++版では`n_left_tiles`行のみだったが、
+    // 9999m6677p88s335zのような全種類の牌で改善する手牌で
+    // オーバーフローする可能性があるため、+1して修正
     for (i, row) in table.iter_mut().enumerate().take(n_left_tiles + 1) {
+        // 0巡目までに引けない確率は1（まだ引いていない）
         row[0] = 1.;
-        // n_left_tiles - i - j > 0 は残りはすべて有効牌の場合を考慮
+        // 各巡目での非ツモ確率を累積的に計算
         for j in 0..(MAX_TSUMO - 1).min(n_left_tiles - i) {
+            // j巡目で引けない確率 = 前巡までの確率 × (非有効牌数 / 残り牌総数)
             row[j + 1] = row[j] * (n_left_tiles - i - j) as f32 / (n_left_tiles - j) as f32;
         }
     }
@@ -167,32 +243,37 @@ fn build_not_tsumo_prob_table<const MAX_TSUMO: usize>(
 }
 
 impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
+    /// 計算のメインエントリーポイント
+    /// 
+    /// 向聴数に応じて詳細計算か簡易計算を選択し、結果をソートして返す
     fn calc(&mut self, can_discard: bool, cur_shanten: i8) -> Vec<Candidate> {
         if cur_shanten <= SHANTEN_THRES {
-            // 3向聴以下は聴牌確率、和了確率、期待値を計算する。
+            // 3向聴以下：聴牌確率、和了確率、期待値を詳細計算
             let mut candidates = if can_discard {
-                self.analyze_discard(cur_shanten)
+                self.analyze_discard(cur_shanten) // 打牌時の分析
             } else {
-                self.analyze_draw(cur_shanten)
+                self.analyze_draw(cur_shanten)     // ツモ時の分析
             };
 
+            // 結果のソート（設定に応じて期待値順または和了率順）
             if self.sup.sort_result && !candidates.is_empty() {
                 let by = if self.sup.maximize_win_prob {
-                    CandidateColumn::WinProb
+                    CandidateColumn::WinProb // 和了率優先
                 } else {
-                    CandidateColumn::EV
+                    CandidateColumn::EV      // 期待値優先（デフォルト）
                 };
-                candidates.sort_by(|l, r| r.cmp(l, by));
+                candidates.sort_by(|l, r| r.cmp(l, by)); // 降順ソート
             }
             candidates
         } else {
-            // 4向聴以上は受入枚数のみ計算する。
+            // 4向聴以上：有効牌枚数のみの簡易計算
             let mut candidates = if can_discard {
-                self.analyze_discard_simple(cur_shanten)
+                self.analyze_discard_simple(cur_shanten) // 簡易打牌分析
             } else {
-                self.analyze_draw_simple()
+                self.analyze_draw_simple()                // 簡易ツモ分析
             };
 
+            // 結果のソート（向聴維持優先）
             if self.sup.sort_result && !candidates.is_empty() {
                 candidates.sort_by(|l, r| r.cmp(l, CandidateColumn::NotShantenDown));
             }
@@ -200,8 +281,11 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
         }
     }
 
+    /// 打牌時の詳細分析
+    /// 
+    /// 各打牌候補について期待値・確率を計算
     fn analyze_discard(&mut self, shanten: i8) -> Vec<Candidate> {
-        // 打牌候補を取得する。
+        // 現在の手牌から打牌候補を取得
         let discard_tiles = self
             .state
             .get_discard_tiles(shanten, self.sup.tehai_len_div3);
@@ -209,43 +293,48 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
         let mut candidates = Vec::with_capacity(discard_tiles.len());
         for DiscardTile { tile, shanten_diff } in discard_tiles {
             if shanten_diff == 0 {
+                // 向聴数維持の場合
+                // 一時的に打牌して計算
                 self.state.discard(tile);
                 let required_tiles = self.state.get_required_tiles(self.sup.tehai_len_div3);
-                let values = self.draw(shanten);
-                self.state.undo_discard(tile);
+                let values = self.draw(shanten); // ツモ後の期待値を計算
+                self.state.undo_discard(tile);   // 状態を戻す
 
                 let mut tenpai_probs = values.tenpai_probs;
                 if shanten == 0 {
-                    // すでに聴牌している場合の例外処理
+                    // すでに聴牌している場合は聴牌確率100%
                     tenpai_probs.fill(1.);
                 }
 
+                // 候補を作成
                 let candidate = Candidate::from(RawCandidate {
                     tile,
                     tenpai_probs: &tenpai_probs,
                     win_probs: &values.win_probs,
                     exp_values: &values.exp_values,
                     required_tiles,
-                    shanten_down: false,
+                    shanten_down: false, // 向聴維持
                 });
                 #[cfg(feature = "sp_reproduce_cpp_ver")]
                 let candidate = candidate.calibrate(self.real_max_tsumo);
                 candidates.push(candidate);
             } else if self.sup.calc_shanten_down && shanten_diff == 1 && shanten < SHANTEN_THRES {
+                // 向聴戻しの場合（設定で有効かつ3向聴以下）
                 self.state.discard(tile);
                 let required_tiles = self.state.get_required_tiles(self.sup.tehai_len_div3);
-                self.state.n_extra_tsumo += 1;
-                let values = self.draw(shanten + 1);
+                self.state.n_extra_tsumo += 1;   // 向聴戻しは1巡余分にかかる
+                let values = self.draw(shanten + 1); // 向聴数+1で計算
                 self.state.n_extra_tsumo -= 1;
                 self.state.undo_discard(tile);
 
+                // 候補を作成
                 let candidate = Candidate::from(RawCandidate {
                     tile,
                     tenpai_probs: &values.tenpai_probs,
                     win_probs: &values.win_probs,
                     exp_values: &values.exp_values,
                     required_tiles,
-                    shanten_down: true,
+                    shanten_down: true, // 向聴戻し
                 });
                 #[cfg(feature = "sp_reproduce_cpp_ver")]
                 let candidate = candidate.calibrate(self.real_max_tsumo);
@@ -311,11 +400,14 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
         vec![candidate]
     }
 
+    /// ツモ後の期待値計算
+    /// 
+    /// 手変わり考慮の有無に応じて適切な計算方法を選択
     fn draw(&mut self, shanten: i8) -> Rc<Values<MAX_TSUMO>> {
         if self.sup.calc_tegawari && self.state.n_extra_tsumo == 0 {
-            self.draw_with_tegawari(shanten)
+            self.draw_with_tegawari(shanten)    // 手変わり考慮あり
         } else {
-            self.draw_without_tegawari(shanten)
+            self.draw_without_tegawari(shanten) // 手変わり考慮なし
         }
     }
 
@@ -560,6 +652,7 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
         values
     }
 
+    /// 打牌後の期待値計算（キャッシュ付き）
     fn discard(&mut self, shanten: i8) -> Rc<Values<MAX_TSUMO>> {
         self.discard_cache[shanten as usize]
             .get(&self.state)
@@ -567,18 +660,21 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
             .unwrap_or_else(|| self.discard_slow(shanten))
     }
 
+    /// 打牌後の期待値計算（実際の計算処理）
+    /// 
+    /// 全ての打牌候補を評価し、最適な打牌を選択
     fn discard_slow(&mut self, shanten: i8) -> Rc<Values<MAX_TSUMO>> {
-        // 打牌候補を取得する。
+        // 現在の手牌から打牌候補を取得
         let discard_tiles = self
             .state
             .get_discard_tiles(shanten, self.sup.tehai_len_div3);
 
-        // 期待値が最大となる打牌を選択する。
+        // 各巡目での最大値を保持する配列
         let mut max_tenpai_probs = [f32::MIN; MAX_TSUMO];
         let mut max_win_probs = [f32::MIN; MAX_TSUMO];
         let mut max_exp_values = [f32::MIN; MAX_TSUMO];
-        let mut max_tiles = [t!(?); MAX_TSUMO];
-        let mut max_values = [i32::MIN; MAX_TSUMO];
+        let mut max_tiles = [t!(?); MAX_TSUMO]; // 最適な打牌
+        let mut max_values = [i32::MIN; MAX_TSUMO]; // 比較用の値
 
         for DiscardTile { tile, shanten_diff } in discard_tiles {
             let values;
@@ -636,8 +732,15 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
         values
     }
 
-    /// None: no yaku
+    /// 和了時の点数計算
+    /// 
+    /// 指定された牌で和了した場合の点数を計算
+    /// 裏ドラや追加役（ダブリー、一発、海底）を考慮した4パターンの点数を返す
+    /// 
+    /// # Returns
+    /// Some([基本点, +1翻, +2翻, +3翻]) または None（役なし）
     fn get_score(&self, win_tile: Tile) -> Option<[f32; 4]> {
+        // アガリ計算機を初期化
         let calc = AgariCalculator {
             tehai: &self.state.tehai,
             is_menzen: self.sup.is_menzen,
@@ -648,9 +751,9 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
             bakaze: self.sup.bakaze,
             jikaze: self.sup.jikaze,
             winning_tile: win_tile.deaka().as_u8(),
-            is_ron: false,
+            is_ron: false, // シングルプレイヤーは常にツモ
         };
-        let is_oya = self.sup.jikaze == tu8!(E);
+        let is_oya = self.sup.jikaze == tu8!(E); // 親かどうか
 
         let additional_yakus = match (self.sup.is_menzen, self.sup.prefer_riichi) {
             (true, true) => 2,

@@ -28,18 +28,19 @@ pub enum Event {
         /// Consists of (nonce, key).
         seed: Option<(u64, u64)>,
     },
+    // 局開始イベント
     StartKyoku {
-        bakaze: Tile,
-        dora_marker: Tile,
+        bakaze: Tile, // 場風（東、南、西、北）
+        dora_marker: Tile, // ドラ表示牌
         /// Counts from 1
-        #[serde_as(deserialize_as = "TryFromInto<BoundedU8<1, 4>>")]
-        kyoku: u8,
-        honba: u8,
-        kyotaku: u8,
-        #[serde_as(deserialize_as = "TryFromInto<Actor>")]
-        oya: u8,
-        scores: [i32; 4],
-        tehais: [[Tile; 13]; 4],
+        #[serde_as(deserialize_as = "TryFromInto<BoundedU8<1, 4>>")] // 1-4の範囲チェック付きデシリアライズ
+        kyoku: u8, // 局番号（1から数える）
+        honba: u8, // 本場数
+        kyotaku: u8, // 供託数
+        #[serde_as(deserialize_as = "TryFromInto<Actor>")] // 0-3の範囲チェック付きデシリアライズ
+        oya: u8, // 親のプレイヤー番号（0-3）
+        scores: [i32; 4], // 4人の得点
+        tehais: [[Tile; 13]; 4], // 4人の配牌（各13枚）
     },
 
     Tsumo {
@@ -156,109 +157,136 @@ pub struct EventWithCanAct {
     pub can_act: Option<bool>,
 }
 
+// Event列挙型の実装
 impl Event {
-    #[inline]
-    #[must_use]
+    // イベントのアクター（行動プレイヤー）を取得
+    #[inline] // インライン化ヒント
+    #[must_use] // 戻り値を使用しないと警告
     pub const fn actor(&self) -> Option<u8> {
         match *self {
-            Self::Tsumo { actor, .. }
-            | Self::Dahai { actor, .. }
-            | Self::Chi { actor, .. }
-            | Self::Pon { actor, .. }
-            | Self::Daiminkan { actor, .. }
-            | Self::Kakan { actor, .. }
-            | Self::Ankan { actor, .. }
-            | Self::Reach { actor, .. }
-            | Self::ReachAccepted { actor, .. }
-            | Self::Hora { actor, .. } => Some(actor),
-            _ => None,
+            // アクターが存在するイベントの場合、その番号を返す
+            Self::Tsumo { actor, .. }        // ツモ
+            | Self::Dahai { actor, .. }      // 打牌
+            | Self::Chi { actor, .. }        // チー
+            | Self::Pon { actor, .. }        // ポン
+            | Self::Daiminkan { actor, .. }  // 大明槓
+            | Self::Kakan { actor, .. }      // 加槓
+            | Self::Ankan { actor, .. }      // 暗槓
+            | Self::Reach { actor, .. }      // リーチ
+            | Self::ReachAccepted { actor, .. } // リーチ成立
+            | Self::Hora { actor, .. } => Some(actor), // 和了
+            _ => None, // その他のイベントはアクターなし
         }
     }
 
+    // ゲーム中のアナウンスイベントかどうか判定
     #[inline]
     #[must_use]
     pub const fn is_in_game_announce(&self) -> bool {
         matches!(
             self,
-            Self::ReachAccepted { .. } | Self::Dora { .. } | Self::Hora { .. }
+            // 以下のイベントはゲーム中のアナウンス
+            Self::ReachAccepted { .. } // リーチ成立
+            | Self::Dora { .. }        // 新ドラ
+            | Self::Hora { .. }        // 和了
         )
     }
 
+    // イベント内の牌を拡張（augment）する
+    // ※ augmentは赤牌や特殊牌の処理に関連
     pub fn augment(&mut self) {
+        // 牌を拡張形式に変換するヘルパー関数
         const fn swap_tile(t: &mut Tile) {
-            *t = t.augment();
+            *t = t.augment(); // 牌をその拡張形式に置き換え
         }
 
         match self {
+            // 局開始時：場風、ドラ、全員の手牌を拡張
             Self::StartKyoku {
                 bakaze,
                 dora_marker,
                 tehais,
                 ..
             } => {
-                swap_tile(bakaze);
-                swap_tile(dora_marker);
-                tehais.iter_mut().flatten().for_each(swap_tile);
+                swap_tile(bakaze);      // 場風を拡張
+                swap_tile(dora_marker); // ドラ表示牌を拡張
+                tehais.iter_mut().flatten().for_each(swap_tile); // 全員の手牌を拡張
             }
+            // ツモ、打牌：対象の牌を拡張
             Self::Tsumo { pai, .. } | Self::Dahai { pai, .. } => swap_tile(pai),
+            // チー、ポン：鳴いた牌と消費した牌を拡張
             Self::Chi { pai, consumed, .. } | Self::Pon { pai, consumed, .. } => {
                 swap_tile(pai);
                 consumed.iter_mut().for_each(swap_tile);
             }
+            // 大明槓、加槓：鳴いた牌と消費した牌を拡張
             Self::Daiminkan { pai, consumed, .. } | Self::Kakan { pai, consumed, .. } => {
                 swap_tile(pai);
                 consumed.iter_mut().for_each(swap_tile);
             }
+            // 暗槓：消費した4枚を拡張
             Self::Ankan { consumed, .. } => consumed.iter_mut().for_each(swap_tile),
+            // 新ドラ：ドラ表示牌を拡張
             Self::Dora { dora_marker } => swap_tile(dora_marker),
+            // 和了：裏ドラ表示牌を拡張（ある場合）
             Self::Hora { ura_markers, .. } => ura_markers.iter_mut().flatten().for_each(swap_tile),
-            _ => (),
+            _ => (), // その他のイベントは何もしない
         }
     }
 }
 
+// BoundedU8からu8への変換実装（範囲チェック付き）
 impl<const MIN: u8, const MAX: u8> TryFrom<BoundedU8<MIN, MAX>> for u8 {
-    type Error = OutOfBoundError;
+    type Error = OutOfBoundError; // 変換エラー型
 
     fn try_from(value: BoundedU8<MIN, MAX>) -> Result<Self, Self::Error> {
+        // 値がMIN以上MAX以下の範囲内かチェック
         if (MIN..=MAX).contains(&value.0) {
-            Ok(value.0)
+            Ok(value.0) // 範囲内なら値を返す
         } else {
-            Err(OutOfBoundError(value.0))
+            Err(OutOfBoundError(value.0)) // 範囲外ならエラー
         }
     }
 }
 
+// OutOfBoundErrorの表示実装
 impl fmt::Display for OutOfBoundError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "out-of-range number {}", self.0)
+        write!(f, "out-of-range number {}", self.0) // 範囲外の数値を表示
     }
 }
 
+// OutOfBoundErrorを標準エラー型としてマーク
 impl Error for OutOfBoundError {}
 
+// EventExtの実装
 impl EventExt {
+    // メタデータなしのEventExtを生成するヘルパー関数
     #[inline]
     #[must_use]
     pub const fn no_meta(event: Event) -> Self {
-        Self { event, meta: None }
+        Self { event, meta: None } // メタデータをNoneに設定
     }
 }
 
+// EventからEventExtへの変換実装
 impl From<Event> for EventExt {
     fn from(ev: Event) -> Self {
-        Self::no_meta(ev)
+        Self::no_meta(ev) // メタデータなしのEventExtに変換
     }
 }
 
+// テストモジュール
 #[cfg(test)]
 mod test {
     use super::*;
 
     use serde_json::{self as json, Map, Number, Value, json};
 
+    // JSONシリアライズ/デシリアライズの一貫性テスト
     #[test]
     fn json_consistency() {
+        // テスト用のJSONサンプルデータ（各種イベントの例）
         let lines = r#"
             {"type":"none"}
             {"type":"start_game","names":["Equim","Mortal","akochan","NoName"],"seed":[123,456]}
@@ -281,33 +309,39 @@ mod test {
             {"type":"end_game"}
         "#.trim();
 
+        // JSON文字列を直接パースした結果
         let expected: Vec<Value> = lines.lines().map(|l| json::from_str(l).unwrap()).collect();
+        // Event型を経由してシリアライズ/デシリアライズした結果
         let actual: Vec<Value> = lines
             .lines()
             .map(|l| {
-                let event: Event = json::from_str(l).unwrap();
-                json::to_value(event).unwrap()
+                let event: Event = json::from_str(l).unwrap(); // JSONからEventへ
+                json::to_value(event).unwrap() // EventからValueへ
             })
             .collect();
 
-        assert_eq!(expected, actual);
+        assert_eq!(expected, actual); // 両者が一致することを確認
     }
 
+    // 範囲チェックのテスト
     #[test]
     fn bound_check() {
+        // actorが範囲外（4）のリーチイベント（エラーになるはず）
         let value = json! ({
             "type": "reach",
-            "actor": 4,
+            "actor": 4, // 0-3の範囲外
         });
-        json::from_value::<Event>(value).unwrap_err();
+        json::from_value::<Event>(value).unwrap_err(); // エラーを期待
 
+        // targetが範囲外（5）の和了イベント（エラーになるはず）
         let value = json! ({
             "type": "hora",
             "actor": 0,
-            "target": 5,
+            "target": 5, // 0-3の範囲外
         });
-        json::from_value::<Event>(value).unwrap_err();
+        json::from_value::<Event>(value).unwrap_err(); // エラーを期待
 
+        // 正常なstart_kyokuイベントの例
         let value = json!({
             "type": "start_kyoku",
             "bakaze": "E",
@@ -325,14 +359,16 @@ mod test {
             ],
         });
         let obj: Map<String, Value> = json::from_value(value).unwrap();
-        json::from_value::<Event>(Value::Object(obj.clone())).unwrap();
+        json::from_value::<Event>(Value::Object(obj.clone())).unwrap(); // 正常にパースできるはず
 
+        // kyokuが範囲外（0）のケース（エラーになるはず）
         let mut test_obj = obj.clone();
-        test_obj["kyoku"] = Value::Number(Number::from(0));
-        json::from_value::<Event>(Value::Object(test_obj)).unwrap_err();
+        test_obj["kyoku"] = Value::Number(Number::from(0)); // 1-4の範囲外
+        json::from_value::<Event>(Value::Object(test_obj)).unwrap_err(); // エラーを期待
 
+        // kyokuが範囲外（5）のケース（エラーになるはず）
         let mut test_obj = obj;
-        test_obj["kyoku"] = Value::Number(Number::from(5));
-        json::from_value::<Event>(Value::Object(test_obj)).unwrap_err();
+        test_obj["kyoku"] = Value::Number(Number::from(5)); // 1-4の範囲外
+        json::from_value::<Event>(Value::Object(test_obj)).unwrap_err(); // エラーを期待
     }
 }

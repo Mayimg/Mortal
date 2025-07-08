@@ -181,9 +181,16 @@ macro_rules! matches_tu8 {
 macro_rules! must_tile {
     ($($id:tt)*) => {{
         #[cfg(debug_assertions)]
-        { $crate::tile::Tile::try_from($($id)*).unwrap() }
+        { 
+            // デバッグビルドでは範囲チェックを行い、無効な値でパニック
+            $crate::tile::Tile::try_from($($id)*).unwrap() 
+        }
         #[cfg(not(debug_assertions))]
-        { $crate::tile::Tile::new_unchecked(($($id)*) as u8) }
+        { 
+            // リリースビルドではチェックをスキップして高速化
+            // 呼び出し側が有効な値を渡す責任を持つ
+            $crate::tile::Tile::new_unchecked(($($id)*) as u8) 
+        }
     }};
 }
 
