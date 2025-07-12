@@ -1,14 +1,14 @@
 [control]
 version = 4
-state_file = 'models/test_mortal.pth'
-best_state_file = 'models/test_best.pth'
-tensorboard_dir = 'logs/tensorboard'
-steps = 100000
+state_file = 'models/test_mortal3.pth'
+best_state_file = 'models/test_best3.pth'
+tensorboard_dir = 'logs/tensorboard_test3'
+steps = 300000
 batch_size = 512
 opt_step_every = 1
-save_every = 10000
-test_every = 10000
-submit_every = 10000
+save_every = 30000
+test_every = 30000
+submit_every = 400
 print_every = 100
 device = 'cuda:0'
 enable_amp = true
@@ -16,6 +16,30 @@ enable_cudnn_benchmark = true
 enable_compile = false
 print_states = true
 online = false
+
+[train_play.default]
+games = 800
+log_dir = 'logs/train_play'
+boltzmann_epsilon = 0.5
+boltzmann_temp = 0.05
+top_p = 1.0
+repeats = 1
+
+[online]
+history_window = 50 
+enable_compile = false 
+
+[online.remote]
+host = '127.0.0.1'  # サーバーのホスト
+port = 5000  # サーバーのポート
+
+[online.server]
+buffer_dir = 'online_training_data/buffer'  
+drain_dir = 'online_training_data/drain'  
+capacity = 1600  
+force_sequential = false  
+sample_reuse_rate = 0  
+sample_reuse_threshold = 0  
 
 [dataset]
 globs = ['data/training/**/*.json.gz']
@@ -30,14 +54,9 @@ player_names_files = []
 
 [env]
 gamma = 1
-pts = [6.0, 4.0, 2.0, 0.0]
+# pts = [6.0, 4.0, 2.0, 0.0]
+pts = [3.0, 1.0, -1.0, -3.0]
 
-[grp]
-state_file = 'models/grp.pth'  # 学習済みGRPモデルへのパス
-
-[grp.network]
-hidden_size = 64
-num_layers = 2
 
 [resnet]
 conv_channels = 192
@@ -56,7 +75,7 @@ hidden_size = 1024
 next_rank_weight = 0.2
 
 [test_play]
-games = 3000
+games = 10000
 log_dir = 'logs/test_play'
 
 [freeze_bn]
@@ -79,18 +98,18 @@ max_steps = 1000000
 [baseline.test]
 device = 'cuda:0'
 enable_compile = false
-state_file = 'models/baseline.pth'
+state_file = 'models/test_best.pth'
 
 [1v3]
 seed_key = -1  # -1 for random seed
-games_per_iter = 100
-iters = 1
-log_dir = 'logs/1v3_battles'
+games_per_iter = 5000
+iters = 10
+log_dir = 'logs/1v3_battles_mortal_tset3'
 
 [1v3.challenger]
 device = 'cuda:0'
 name = 'mortal_best'
-state_file = 'models/best.pth'
+state_file = 'models/test_best3.pth'
 stochastic_latent = false
 enable_compile = false
 enable_amp = true
@@ -107,3 +126,33 @@ enable_rule_based_agari_guard = true
 
 [1v3.akochan]
 enabled = false
+
+[grp]
+state_file = 'models/grp.pth'
+
+[grp.control]
+device = 'cuda:0'
+batch_size = 512
+save_every = 2000
+print_every = 10
+val_interval = 100
+val_steps = 400
+enable_cudnn_benchmark = true
+tensorboard_dir = 'logs/tensorboard_grp'
+
+[grp.dataset]
+train_globs = ['data/training/**/*.json.gz']
+# Note: validation directory doesn't exist yet. You'll need to create it and add validation data.
+# For now, pointing to a non-existent directory. Update this path when validation data is available.
+val_globs = ['data/validation/**/*.json.gz']
+enable_augmentation = true
+file_batch_size = 50
+file_index = 'cache/grp_file_index.pth'
+
+[grp.network]
+hidden_size = 64
+num_layers = 2
+
+[grp.optim]
+lr = 0.002
+weight_decay = 0.00001
