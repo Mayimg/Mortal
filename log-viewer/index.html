@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html><head>
+  <meta charset="utf-8">
+  <title>Mahjong Archive Player</title>
+  <link rel="stylesheet" type="text/css" href="files/css/style.css">
+  <script src="files/js/jquery-1.7.2.min.js"></script>
+  <script src="files/js/dytem.js"></script>
+  <script>
+    // 必要なグローバル変数を定義（archive_player.jsが期待する形で）
+    var allActions = [];
+    var resourceDir = "files";
+  </script>
+  <script src="files/js/archive_player.js"></script>
+  <script>
+    // gzip解凍処理
+    async function decompressGzip(arrayBuffer) {
+      // DecompressionStream APIのサポートチェック
+      if (!window.DecompressionStream) {
+        throw new Error('Your browser does not support DecompressionStream API. Please use a modern browser or select an uncompressed file.');
+      }
+      
+      const stream = new Response(arrayBuffer).body;
+      const decompressedStream = stream.pipeThrough(new DecompressionStream('gzip'));
+      const decompressedResponse = new Response(decompressedStream);
+      const decompressedArrayBuffer = await decompressedResponse.arrayBuffer();
+      return new TextDecoder().decode(decompressedArrayBuffer);
+    }
+    
+    // JSONデータのパース処理
+    function parseJsonLines(content) {
+      const lines = content.trim().split('\n').filter(line => line.trim());
+      return lines.map((line, index) => {
+        try {
+          return JSON.parse(line);
+        } catch (err) {
+          console.error(`JSON parse error at line ${index + 1}:`, line);
+          throw new Error(`Invalid JSON format at line ${index + 1}`);
+        }
+      });
+    }
+    
+    // ゲームデータの初期化と表示
+    function initializeGame(newActions, fileName) {
+      console.log(`Parsed ${newActions.length} actions`);
+      
+      // グローバル変数をリセット
+      allActions = newActions;
+      kyokus = [];
+      currentKyokuId = 0;
+      currentActionId = 0;
+      playerInfos = [{}, {}, {}, {}];
+      
+      // 全アクションを読み込み
+      for (let i = 0; i < allActions.length; i++) {
+        loadAction(allActions[i]);
+      }
+      
+      console.log(`Loaded ${kyokus.length} kyokus`);
+      
+      // 局選択セレクタを更新
+      const kyokuSelector = $("#kyokuSelector").get(0);
+      kyokuSelector.innerHTML = '';
+      for (let i = 0; i < kyokus.length; i++) {
+        const bakazeStr = BAKAZE_TO_STR[kyokus[i].bakaze];
+        const honba = kyokus[i].honba;
+        const kyokuNum = kyokus[i].kyokuNum;
+        const label = `${bakazeStr}${kyokuNum}局 ${honba}本場`;
+        kyokuSelector.options[i] = new Option(label, i);
+      }
+      
+      // UI要素を有効化（file-loaderは常に表示）
+      document.body.classList.add('game-loaded');
+      
+      // プレイヤー名を更新
+      for (let i = 0; i < 4; i++) {
+        if (playerInfos[i].name) {
+          Dytem.playerInfos.at(i).name.text(playerInfos[i].name);
+        }
+      }
+      
+      // 最初のアクションを表示
+      currentActionId = 0;
+      $("#action-id-label").val(0);
+      if (kyokus.length > 0) {
+        renderCurrentAction();
+      }
+      
+      document.getElementById('file-info').textContent = `Loaded: ${fileName} (${allActions.length} actions)`;
+    }
+    
+    // ファイル読み込み処理
+    async function loadMjaiFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      // ファイル入力をリセット（同じファイルを再選択可能にする）
+      const fileInput = event.target;
+      
+      try {
+        let content;
+        
+        // ファイル拡張子で処理を分岐
+        if (file.name.endsWith('.gz')) {
+          // gzipファイルの場合
+          console.log('Processing gzip file...');
+          const arrayBuffer = await file.arrayBuffer();
+          content = await decompressGzip(arrayBuffer);
+        } else {
+          // 通常のテキストファイルの場合
+          console.log('Processing text file...');
+          content = await file.text();
+        }
+        
+        // JSONをパース
+        const newActions = parseJsonLines(content);
+        
+        // ゲームを初期化
+        initializeGame(newActions, file.name);
+        
+      } catch (error) {
+        alert('Error loading file: ' + error.message);
+        console.error('File loading error:', error);
+      } finally {
+        // ファイル入力をリセット（同じファイルを再選択可能にする）
+        fileInput.value = '';
+      }
+    }
+    
+    // ページロード完了後の処理
+    $(function() {
+      // Lastボタンのハンドラーを追加
+      $("#last-button").click(function() {
+        const kyoku = getCurrentKyoku();
+        if (kyoku && kyoku.actions && kyoku.actions.length > 0) {
+          currentActionId = kyoku.actions.length - 1;
+          $("#action-id-label").val(currentActionId);
+          renderCurrentAction();
+        }
+      });
+    });
+  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+    
+    /* ファイル選択部分のスタイル */
+    #file-loader {
+      padding: 20px;
+      text-align: center;
+      background-color: #f0f0f0;
+      border-bottom: 2px solid #ccc;
+      position: relative;
+      z-index: 1000;
+      box-sizing: border-box;
+    }
+    
+    /* ゲーム読み込み後はfixedに変更 */
+    body.game-loaded #file-loader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+    }
+    #file-loader h2 {
+      margin-top: 0;
+      font-size: 18px;
+    }
+    #file-info {
+      margin-top: 10px;
+      color: #666;
+      font-size: 14px;
+    }
+    /* ゲーム読み込み後のfile-loader調整 */
+    body.game-loaded #file-loader {
+      padding: 10px 20px;
+      border-bottom: 2px solid #ccc;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    body.game-loaded #file-loader h2 {
+      display: none;
+    }
+    body.game-loaded #file-loader p {
+      display: none;
+    }
+    
+    /* ゲームコンテナのスタイル */
+    #game-container {
+      display: none;
+      margin: 0;
+      padding: 20px;
+      overflow: visible;
+    }
+    
+    /* ゲーム読み込み後の表示 */
+    body.game-loaded #game-container {
+      display: block;
+      transform: scale(2.3);
+      transform-origin: left top;
+      margin-top: 20px; /* ヘッダー下の余白 */
+      width: 600px; /* 元のコンテンツ幅を制限 */
+    }
+    
+    /* ゲーム読み込み後のレイアウト調整 */
+    body.game-loaded {
+      padding-top: 80px; /* fixed headerの高さ分 */
+    }
+    
+    /* style.cssのbodyのtransformを上書き */
+    html, body {
+      transform: none !important;
+      overflow: hidden;
+      height: 100%;
+    }
+    
+    /* 牌盤と操作パネルの表示制御 */
+    .board {
+      display: block !important;
+    }
+    .controller-container {
+      display: block !important;
+    }
+  </style>
+</head><body>
+  <div id="file-loader">
+    <h2>MJAI Log Viewer</h2>
+    <p>Select an MJAI format log file to view:</p>
+    <input type="file" id="file-input" accept=".json,.jsonl,.txt,.gz" onchange="loadMjaiFile(event)">
+    <div id="file-info"></div>
+  </div>
+
+  <div id="game-container">
+    <div class="board">
+      <div id="players" class="repeated player">
+        <div class="ho">
+          <div id="players.hoRows" class="repeated pai-row">
+            <img id="players.hoRows.pais" class="repeated">
+          </div>
+        </div>
+        <div class="tehai-container pai-row">
+          <img id="players.tehais" class="repeated">
+          <img id="players.tsumoPai" class="tsumo-pai">
+        </div>
+        <div class="furo-container pai-row">
+          <span id="players.furos" class="repeated">
+            <img id="players.furos.pais" class="repeated">
+          </span>
+        </div>
+        <div class="player-footer"></div>
+      </div>
+      <div class="wanpais-container">
+        <img id="wanpais" class="repeated">
+      </div>
+    </div>
+
+    <div class="controller-container">
+      <div>
+        <select id="kyokuSelector"></select>
+      </div>
+      <div>
+        <button id="prev-button">Prev</button>
+        <button id="next-button">Next</button>
+        <input id="action-id-label" type="text" size="3" value="0">
+        <button id="go-button">Go</button>
+        <button id="last-button" style="margin-left: 1em;">Last</button>
+      </div>
+      <table border="0">
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Score</th>
+          <th><button id="viewpoint-button">Viewpoint</button></th>
+        </tr>
+        <tr id="playerInfos" class="repeated">
+          <td id="playerInfos.index"></td>
+          <td id="playerInfos.name"></td>
+          <td id="playerInfos.score"></td>
+          <td id="playerInfos.viewpoint"></td>
+        </tr>
+      </table>
+      <div><pre id="action-label"></pre></div>
+      <div id="log-label" class="log-label"></div>
+    </div>
+  </div>
+
+</body></html>
