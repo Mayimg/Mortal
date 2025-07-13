@@ -17,10 +17,12 @@ body {
 
 .laid-pai {
   width: 30px;
-  height: 32px; }
+  height: 32px;
+  transform: rotate(90deg);
+  transform-origin: center; }
 
 .board {
-  background-color: grey;
+  background-color: #2d7e2d;
   position: absolute;
   left: 0px;
   top: 0px;

@@ -72,27 +72,42 @@ sortPais = function(pais) {
 };
 
 paiToImageUrl = function(pai, pose) {
-  var ext, name, parsedPai, redSuffix;
+  var name, parsedPai;
   if (pai) {
     if (pai === "?") {
-      name = "bk";
-      ext = "gif";
+      name = "Back";
     } else {
       parsedPai = parsePai(pai);
       if (parsedPai.type === "t") {
-        name = TSUPAI_TO_IMAGE_NAME[pai];
+        // Honor tiles
+        switch(pai) {
+          case "E": name = "Ton"; break;
+          case "S": name = "Nan"; break;
+          case "W": name = "Shaa"; break;
+          case "N": name = "Pei"; break;
+          case "P": name = "Haku"; break;
+          case "F": name = "Hatsu"; break;
+          case "C": name = "Chun"; break;
+        }
       } else {
-        redSuffix = parsedPai.red ? "r" : "";
-        name = "" + parsedPai.type + "s" + parsedPai.number + redSuffix;
+        // Number tiles
+        var typePrefix;
+        switch(parsedPai.type) {
+          case "m": typePrefix = "Man"; break;
+          case "p": typePrefix = "Pin"; break;
+          case "s": typePrefix = "Sou"; break;
+        }
+        if (parsedPai.red) {
+          name = typePrefix + parsedPai.number + "-Dora";
+        } else {
+          name = typePrefix + parsedPai.number;
+        }
       }
-      ext = parsedPai.red ? "png" : "gif";
     }
-    if (pose === void 0) {
-      pose = 1;
-    }
-    return "files/images/p_" + name + "_" + pose + "." + ext;
+    // Note: pose parameter is ignored in the new system - all images are .png
+    return "files/Export/New_Regular/" + name + ".png";
   } else {
-    return "files/images/blank.png";
+    return null;  // Don't return Blank.png for null values
   }
 };
 
@@ -348,7 +363,14 @@ renderPai = function(pai, view, pose) {
   if (pose === void 0) {
     pose = 1;
   }
-  view.attr("src", paiToImageUrl(pai, pose));
+  var imageUrl = paiToImageUrl(pai, pose);
+  if (imageUrl === null) {
+    view.hide();  // Hide the element if there's no image
+    return;
+  } else {
+    view.show();  // Show the element if there's an image
+    view.attr("src", imageUrl);
+  }
   switch (pose) {
     case 1:
       view.addClass("pai");
