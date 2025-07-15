@@ -435,39 +435,42 @@ def train():
             # only run one epoch for offline for easier control
             break
 
-def main():
+if __name__ == '__main__':
     import os
     import sys
     import time
     from subprocess import Popen
-    from .config import config
-
+    
+    # Import config based on how the script is run
+    if __package__:
+        from .config import config
+    else:
+        # Direct execution fallback
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from mortal.config import config
+    
     # do not set this env manually
     is_sub_proc_key = 'MORTAL_IS_SUB_PROC'
     online = config['control']['online']
     if not online or os.environ.get(is_sub_proc_key, '0') == '1':
-        train()
-        return
-
-    cmd = (sys.executable, __file__)
-    env = {
-        is_sub_proc_key: '1',
-        **os.environ.copy(),
-    }
-    while True:
-        child = Popen(
-            cmd,
-            stdin = sys.stdin,
-            stdout = sys.stdout,
-            stderr = sys.stderr,
-            env = env,
-        )
-        if (code := child.wait()) != 0:
-            sys.exit(code)
-        time.sleep(3)
-
-if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        pass
+        try:
+            train()
+        except KeyboardInterrupt:
+            pass
+    else:
+        cmd = (sys.executable, '-m', 'mortal.train')
+        env = {
+            is_sub_proc_key: '1',
+            **os.environ.copy(),
+        }
+        while True:
+            child = Popen(
+                cmd,
+                stdin = sys.stdin,
+                stdout = sys.stdout,
+                stderr = sys.stderr,
+                env = env,
+            )
+            if (code := child.wait()) != 0:
+                sys.exit(code)
+            time.sleep(3)

@@ -1,13 +1,13 @@
 [control]
 version = 4
-state_file = 'models/test_mortal3.pth'
-best_state_file = 'models/test_best3.pth'
-tensorboard_dir = 'logs/tensorboard_test3'
-steps = 300000
-batch_size = 512
+state_file = 'models/test_mortal12.pth'
+best_state_file = 'models/test_best12.pth'
+tensorboard_dir = 'logs/tensorboard_test12'
+steps = 10000
+batch_size = 256
 opt_step_every = 1
-save_every = 30000
-test_every = 30000
+save_every = 2000
+test_every = 2000
 submit_every = 400
 print_every = 100
 device = 'cuda:0'
@@ -15,7 +15,12 @@ enable_amp = true
 enable_cudnn_benchmark = true
 enable_compile = false
 print_states = true
-online = false
+online = true
+
+[baseline.train]
+device = 'cuda:0'
+enable_compile = false
+state_file = 'models/mortal.pth'  # ベースライン（対戦相手）モデル
 
 [train_play.default]
 games = 800
@@ -61,6 +66,8 @@ pts = [3.0, 1.0, -1.0, -3.0]
 [resnet]
 conv_channels = 192
 num_blocks = 40
+# use_checkpoint = false  # 活性化チェックポイントを有効化
+# checkpoint_segments = 8  # 40ブロックを8セグメントに分割（各5ブロック）
 
 [cql]
 target_update_interval = 1000
@@ -75,7 +82,7 @@ hidden_size = 1024
 next_rank_weight = 0.2
 
 [test_play]
-games = 10000
+games = 5000
 log_dir = 'logs/test_play'
 
 [freeze_bn]
@@ -102,14 +109,14 @@ state_file = 'models/test_best.pth'
 
 [1v3]
 seed_key = -1  # -1 for random seed
-games_per_iter = 5000
-iters = 10
-log_dir = 'logs/1v3_battles_mortal_tset3'
+games_per_iter = 500
+iters = 1
+log_dir = 'logs/1v3_battles_mortal_tset6'
 
 [1v3.challenger]
 device = 'cuda:0'
 name = 'mortal_best'
-state_file = 'models/test_best3.pth'
+state_file = 'models/test_mortal4.pth'
 stochastic_latent = false
 enable_compile = false
 enable_amp = true
@@ -118,7 +125,7 @@ enable_rule_based_agari_guard = true
 [1v3.champion]
 device = 'cuda:0'
 name = 'mortal_baseline'
-state_file = 'models/mortal.pth'
+state_file = 'models/test_best3.pth'
 stochastic_latent = false
 enable_compile = false
 enable_amp = true

@@ -8,7 +8,7 @@ from os import path
 from .model import Brain, DQN
 from .engine import MortalEngine
 from .libriichi.stat import Stat
-from .libriichi.arena import OneVsThree
+from .libriichi.arena import OneVsThree, OneVsThreeNoDuplicate
 from .config import config
 
 class TestPlayer:
@@ -109,7 +109,7 @@ class TrainPlayer:
         self.train_key = secrets.randbits(64)
         self.train_seed = 10000
 
-        self.seed_count = cfg['games'] // 4
+        self.seed_count = cfg['games']  # OneVsThreeNoDuplicate uses 1 game per seed
         self.boltzmann_epsilon = cfg['boltzmann_epsilon']
         self.boltzmann_temp = cfg['boltzmann_temp']
         self.top_p = cfg['top_p']
@@ -135,13 +135,14 @@ class TrainPlayer:
         if path.isdir(self.log_dir):
             shutil.rmtree(self.log_dir)
 
-        env = OneVsThree(
+        env = OneVsThreeNoDuplicate(
             disable_progress_bar = False,
             log_dir = self.log_dir,
         )
         rankings = env.py_vs_py(
             challenger = engine_chal,
-            champion = self.baseline_engine,
+            # champion = self.baseline_engine,
+            champion = engine_chal,
             seed_start = (self.train_seed, self.train_key),
             seed_count = self.seed_count,
         )
