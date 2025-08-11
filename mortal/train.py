@@ -1,4 +1,4 @@
-def train():
+def train(is_first_run=False):
     from . import prelude
 
     import logging
@@ -95,9 +95,13 @@ def train():
     scheduler = LinearWarmUpCosineAnnealingLR(optimizer, **config['optim']['scheduler'])
     scaler = GradScaler(device.type, enabled=enable_amp)
     test_player = TestPlayer()
+    # best_perf = {
+    #     'avg_rank': 4.,
+    #     'avg_pt': -135.,
+    # }
     best_perf = {
-        'avg_rank': 4.,
-        'avg_pt': -135.,
+        'avg_rank': 2.5,
+        'avg_pt': 0.,
     }
 
     steps = 0
@@ -114,7 +118,8 @@ def train():
             optimizer.load_state_dict(state['optimizer'])
             scheduler.load_state_dict(state['scheduler'])
         scaler.load_state_dict(state['scaler'])
-        best_perf = state['best_perf']
+        if not is_first_run:  
+            best_perf = state['best_perf']
         steps = state['steps']
 
     optimizer.zero_grad(set_to_none=True)
@@ -126,7 +131,7 @@ def train():
     else:
         logging.info(f'device: {device}')
 
-    if online:
+    if online and is_first_run:
         submit_param(mortal, dqn, is_idle=True)
         logging.info('param has been submitted')
 
@@ -143,6 +148,8 @@ def train():
     def train_epoch():
         nonlocal steps
         nonlocal idx
+        nonlocal all_q
+        nonlocal all_q_target
 
         player_names = []
         if online:
@@ -216,6 +223,8 @@ def train():
             nonlocal steps
             nonlocal idx
             nonlocal pb
+            nonlocal all_q
+            nonlocal all_q_target
 
             obs = obs.to(dtype=torch.float32, device=device)
             actions = actions.to(dtype=torch.int64, device=device)
@@ -268,9 +277,9 @@ def train():
             scheduler.step()
             pb.update(1)
 
-            if online and steps % submit_every == 0:
-                submit_param(mortal, dqn, is_idle=False)
-                logging.info('param has been submitted')
+            # if online and steps % submit_every == 0:
+            #     submit_param(mortal, dqn, is_idle=False)
+            #     logging.info('param has been submitted')
 
             if steps % save_every == 0:
                 pb.close()
@@ -309,14 +318,24 @@ def train():
                 }
                 torch.save(state, state_file)
 
-                if online and steps % submit_every != 0:
-                    submit_param(mortal, dqn, is_idle=False)
-                    logging.info('param has been submitted')
+                # if online and steps % submit_every != 0:
+                #     submit_param(mortal, dqn, is_idle=False)
+                #     logging.info('param has been submitted')
 
                 if steps % test_every == 0:
+                    # テストプレイ前にテンソルをCPUに移動してGPUメモリを解放
+                    all_q = all_q.cpu()
+                    all_q_target = all_q_target.cpu()
+                    torch.cuda.empty_cache()
+                    
+                    # テストプレイを実行
                     stat = test_player.test_play(test_games // 4, mortal, dqn, device)
                     mortal.train()
                     dqn.train()
+                    
+                    # テンソルをGPUに戻す
+                    all_q = all_q.to(device)
+                    all_q_target = all_q_target.to(device)
 
                     avg_pt = stat.avg_pt([90, 45, 0, -135]) # for display only, never used in training
                     better = avg_pt >= best_perf['avg_pt'] and stat.avg_rank <= best_perf['avg_rank']
@@ -378,6 +397,8 @@ def train():
                             f'saving to {best_state_file}'
                         )
                         shutil.copy(state_file, best_state_file)
+                        submit_param(mortal, dqn, is_idle=False)
+                        logging.info('param has been submitted')
                     if online:
                         # BUG: This is a bug with unknown reason. When training
                         # in online mode, the process will get stuck here. This
@@ -422,9 +443,9 @@ def train():
                 end += batch_size
         pb.close()
 
-        if online:
-            submit_param(mortal, dqn, is_idle=True)
-            logging.info('param has been submitted')
+        # if online:
+        #     submit_param(mortal, dqn, is_idle=True)
+        #     logging.info('param has been submitted')
 
     while True:
         train_epoch()
@@ -451,19 +472,23 @@ if __name__ == '__main__':
     
     # do not set this env manually
     is_sub_proc_key = 'MORTAL_IS_SUB_PROC'
+    is_first_run_key = 'MORTAL_IS_FIRST_RUN'
     online = config['control']['online']
     if not online or os.environ.get(is_sub_proc_key, '0') == '1':
         try:
-            train()
+            is_first_run = os.environ.get(is_first_run_key, '0') == '1'
+            train(is_first_run=is_first_run)
         except KeyboardInterrupt:
             pass
     else:
         cmd = (sys.executable, '-m', 'mortal.train')
-        env = {
-            is_sub_proc_key: '1',
-            **os.environ.copy(),
-        }
+        first_iteration = True
         while True:
+            env = {
+                is_sub_proc_key: '1',
+                is_first_run_key: '1' if first_iteration else '0',
+                **os.environ.copy(),
+            }
             child = Popen(
                 cmd,
                 stdin = sys.stdin,
@@ -473,4 +498,5 @@ if __name__ == '__main__':
             )
             if (code := child.wait()) != 0:
                 sys.exit(code)
+            first_iteration = False
             time.sleep(3)

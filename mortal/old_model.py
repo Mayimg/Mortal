@@ -2,7 +2,6 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_sequence
-from torch.utils.checkpoint import checkpoint
 from typing import *
 from functools import partial
 from itertools import permutations
@@ -78,80 +77,36 @@ class ResNet(nn.Module):
         norm_builder = nn.Identity,
         actv_builder = nn.ReLU,
         pre_actv = False,
-        use_checkpoint = False,
-        checkpoint_segments = 8,
     ):
         super().__init__()
-        self.use_checkpoint = use_checkpoint
-        self.checkpoint_segments = checkpoint_segments
 
-        # Create blocks
-        self.blocks = nn.ModuleList()
+        blocks = []
         for _ in range(num_blocks):
-            self.blocks.append(ResBlock(
+            blocks.append(ResBlock(
                 conv_channels,
                 norm_builder = norm_builder,
                 actv_builder = actv_builder,
                 pre_actv = pre_actv,
             ))
 
-        # Initial convolution
-        self.initial_conv = nn.Conv1d(in_channels, conv_channels, kernel_size=3, padding=1, bias=False)
-        
-        # Pre/post processing layers
+        layers = [nn.Conv1d(in_channels, conv_channels, kernel_size=3, padding=1, bias=False)]
         if pre_actv:
-            self.pre_block_layers = nn.Sequential(norm_builder(), actv_builder())
-            self.post_block_layers = nn.Sequential(norm_builder(), actv_builder())
+            layers += [*blocks, norm_builder(), actv_builder()]
         else:
-            self.pre_block_layers = nn.Sequential(norm_builder(), actv_builder())
-            self.post_block_layers = nn.Identity()
-        
-        # Final layers
-        self.final_layers = nn.Sequential(
+            layers += [norm_builder(), actv_builder(), *blocks]
+        layers += [
             nn.Conv1d(conv_channels, 32, kernel_size=3, padding=1),
             actv_builder(),
             nn.Flatten(),
             nn.Linear(32 * 34, 1024),
-        )
-
-        # Calculate blocks per segment for checkpointing
-        if use_checkpoint:
-            self.blocks_per_segment = max(1, num_blocks // checkpoint_segments)
+        ]
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
-        # Initial convolution
-        x = self.initial_conv(x)
-        
-        # Pre-block processing
-        x = self.pre_block_layers(x)
-        
-        # Apply blocks with optional checkpointing
-        if self.use_checkpoint and self.training:
-            # Divide blocks into segments and apply checkpointing
-            for i in range(0, len(self.blocks), self.blocks_per_segment):
-                segment_end = min(i + self.blocks_per_segment, len(self.blocks))
-                # Create a function that applies a segment of blocks
-                def segment_forward(x, start_idx, end_idx):
-                    for j in range(start_idx, end_idx):
-                        x = self.blocks[j](x)
-                    return x
-                # Apply checkpoint to this segment
-                x = checkpoint(segment_forward, x, i, segment_end, use_reentrant=False)
-        else:
-            # Normal forward pass without checkpointing
-            for block in self.blocks:
-                x = block(x)
-        
-        # Post-block processing
-        x = self.post_block_layers(x)
-        
-        # Final layers
-        x = self.final_layers(x)
-        
-        return x
+        return self.net(x)
 
 class Brain(nn.Module):
-    def __init__(self, *, conv_channels, num_blocks, is_oracle=False, version=1, use_checkpoint=False, checkpoint_segments=8):
+    def __init__(self, *, conv_channels, num_blocks, is_oracle=False, version=1):
         super().__init__()
         self.is_oracle = is_oracle
         self.version = version
@@ -188,8 +143,6 @@ class Brain(nn.Module):
             norm_builder = norm_builder,
             actv_builder = actv_builder,
             pre_actv = pre_actv,
-            use_checkpoint = use_checkpoint,
-            checkpoint_segments = checkpoint_segments,
         )
         self.actv = actv_builder()
 
