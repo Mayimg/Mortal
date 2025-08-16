@@ -141,8 +141,8 @@ class TrainPlayer:
         )
         rankings = env.py_vs_py(
             challenger = engine_chal,
-            champion = self.baseline_engine,
-            # champion = engine_chal,
+            # champion = self.baseline_engine,
+            champion = engine_chal,
             seed_start = (self.train_seed, self.train_key),
             seed_count = self.seed_count,
         )

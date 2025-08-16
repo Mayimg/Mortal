@@ -1,14 +1,14 @@
 [control]
 version = 4
-state_file = 'models/test_mortal20.pth'
-best_state_file = 'models/test_best20.pth'
-tensorboard_dir = 'logs/tensorboard_test20'
+state_file = 'models/test_mortal25.pth'
+best_state_file = 'models/test_best25.pth'
+tensorboard_dir = 'logs/tensorboard_test25'
 steps = 300000
 batch_size = 2048
-opt_step_every = 1
-save_every = 2000
-test_every = 2000
-submit_every = 400
+opt_step_every = 4
+save_every = 10000
+test_every = 10000
+submit_every = 10000
 print_every = 100
 device = 'cuda:0'
 enable_amp = true
@@ -25,7 +25,7 @@ state_file = 'models/test_best15.pth'  # ベースライン（対戦相手）モ
 [train_play.default]
 games = 800
 log_dir = 'logs/train_play'
-boltzmann_epsilon = 0.00
+boltzmann_epsilon = 0.005
 boltzmann_temp = 0.05
 top_p = 1.0
 repeats = 1
@@ -97,8 +97,10 @@ betas = [0.9, 0.999]
 max_grad_norm = 0
 
 [optim.scheduler]
-peak = 0.00001
-final = 0.00001
+# peak = 0.00001
+# final = 0.00001
+peak = 0.000001
+final = 0.000001
 warm_up_steps = 0
 max_steps = 1000000
 
@@ -111,12 +113,12 @@ state_file = 'models/test_best15.pth'
 seed_key = -1  # -1 for random seed
 games_per_iter = 20000
 iters = 1
-log_dir = 'logs/1v3_battles_15_vs_14'
+log_dir = 'logs/1v3_battles_23_vs_15'
 
 [1v3.challenger]
 device = 'cuda:0'
 name = 'mortal_best'
-state_file = 'models/test_best15.pth'
+state_file = 'models/test_best23_2.pth'
 stochastic_latent = false
 enable_compile = false
 enable_amp = true
@@ -125,7 +127,7 @@ enable_rule_based_agari_guard = true
 [1v3.champion]
 device = 'cuda:0'
 name = 'mortal_baseline'
-state_file = 'models/test_best14.pth'
+state_file = 'models/test_best15.pth'
 stochastic_latent = false
 enable_compile = false
 enable_amp = true

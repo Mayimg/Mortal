@@ -120,6 +120,7 @@ def train(is_first_run=False):
         scaler.load_state_dict(state['scaler'])
         if not is_first_run:  
             best_perf = state['best_perf']
+        # best_perf = state['best_perf']
         steps = state['steps']
 
     optimizer.zero_grad(set_to_none=True)
