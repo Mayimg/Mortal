@@ -1,96 +1,141 @@
-/* These sizes should be even numbers to get good rendering when they are rotated. */
-/* Original size: 33x59 */
-/* Original size: 44x49 */
+/*
+ * 麻雀牌譜ビューアー用スタイルシート
+ * 麻雀の盤面、牌、プレイヤー配置などの視覚的表現を定義
+ */
 
+/* 回転時の描画品質向上のため、サイズは偶数にする必要がある */
+/* 元の牌サイズ: 33x59 */
+/* 元の牌サイズ（横向き）: 44x49 */
+
+/* ページ全体の基本設定 */
 body {
-  transform: scale(2.3);
-  transform-origin: left;
-  overflow-x: hidden;
+  transform: scale(2.3);        /* 全体を2.3倍に拡大表示（視認性向上） */
+  transform-origin: left;       /* 拡大の基準点を左端に設定 */
+  overflow-x: hidden;           /* 横スクロールバーを非表示 */
 }
 
+/* Dytemテンプレートエンジン用クラス */
+/* repeated属性を持つ要素は初期状態で非表示（テンプレート処理前） */
 .repeated {
-  display: none; }
+  display: none;
+}
 
+/* 標準的な麻雀牌（縦向き）のスタイル */
 .pai {
-  width: 22px;
-  height: 40px; }
+  width: 22px;                  /* 牌の横幅 */
+  height: 40px;                 /* 牌の縦幅 */
+}
 
+/* 捨て牌など横に倒した状態の牌のスタイル */
 .laid-pai {
-  width: 30px;
-  height: 32px;
-  transform: rotate(90deg);
-  transform-origin: center; }
+  width: 30px;                  /* 横倒し時の牌の横幅 */
+  height: 32px;                 /* 横倒し時の牌の縦幅 */
+  transform: rotate(90deg);     /* 90度回転させて横向きに */
+  transform-origin: center;     /* 回転の中心点を牌の中央に設定 */
+}
 
+/* 麻雀卓（盤面全体）のスタイル */
 .board {
-  background-color: #2d7e2d;
-  position: absolute;
-  left: 0px;
-  top: 0px;
-  width: 550px;
-  height: 550px; }
+  background-color: #2d7e2d;    /* 緑色の麻雀卓を表現 */
+  position: absolute;           /* 絶対位置指定 */
+  left: 0px;                   /* 左端からの位置 */
+  top: 0px;                    /* 上端からの位置 */
+  width: 550px;                /* 卓の幅 */
+  height: 550px;               /* 卓の高さ */
+}
 
+/* プレイヤー表示エリアの基本設定 */
 .player {
-  /* border: 1px black solid; */
-  width: 550px;
-  position: absolute; }
+  /* border: 1px black solid; */ /* デバッグ用境界線（コメントアウト） */
+  width: 550px;                 /* プレイヤーエリアの幅 */
+  position: absolute;           /* 絶対位置指定で正確な配置 */
+}
 
+/* プレイヤー0（下座・自分）の位置とスタイル */
 .player-0 {
-  left: 0px;
-  top: 350px;
-  -webkit-transform: rotate(0deg);
-  transform: rotate(0deg); }
+  left: 0px;                   /* 左端からの位置 */
+  top: 350px;                  /* 上端からの位置（下部に配置） */
+  -webkit-transform: rotate(0deg); /* WebKit系ブラウザ対応：回転なし */
+  transform: rotate(0deg);     /* 標準：回転なし（正面向き） */
+}
 
+/* プレイヤー1（右座・下家）の位置とスタイル */
 .player-1 {
-  left: 175px;
-  top: 175px;
-  -webkit-transform: rotate(270deg);
-  transform: rotate(270deg); }
+  left: 175px;                 /* 中央右寄りに配置 */
+  top: 175px;                  /* 中央の高さに配置 */
+  -webkit-transform: rotate(270deg); /* WebKit系：反時計回りに270度回転 */
+  transform: rotate(270deg);   /* 標準：反時計回りに270度回転（右向き） */
+}
 
+/* プレイヤー2（上座・対面）の位置とスタイル */
 .player-2 {
-  left: 0px;
-  top: 0px;
-  -webkit-transform: rotate(180deg);
-  transform: rotate(180deg); }
+  left: 0px;                   /* 左端に配置 */
+  top: 0px;                    /* 上端に配置 */
+  -webkit-transform: rotate(180deg); /* WebKit系：180度回転 */
+  transform: rotate(180deg);   /* 標準：180度回転（逆さま・対面向き） */
+}
 
+/* プレイヤー3（左座・上家）の位置とスタイル */
 .player-3 {
-  left: -175px;
-  top: 175px;
-  -webkit-transform: rotate(90deg);
-  transform: rotate(90deg); }
+  left: -175px;                /* 左側にはみ出す位置に配置 */
+  top: 175px;                  /* 中央の高さに配置 */
+  -webkit-transform: rotate(90deg); /* WebKit系：時計回りに90度回転 */
+  transform: rotate(90deg);    /* 標準：時計回りに90度回転（左向き） */
+}
 
+/* 王牌（ワンパイ）表示コンテナ */
+/* ドラ表示牌や嶺上牌などが配置される中央エリア */
 .wanpais-container {
-  position: absolute;
-  left: 209px;
-  top: 255px; }
+  position: absolute;          /* 絶対位置指定 */
+  left: 209px;                 /* 卓の中央左寄りに配置 */
+  top: 255px;                  /* 卓の中央に配置 */
+}
 
+/* 河（ホ）：各プレイヤーの捨て牌エリア */
 .ho {
-  margin-left: 209px;
-  margin-bottom: 40px; }
+  margin-left: 209px;          /* 左マージンで中央寄せ */
+  margin-bottom: 40px;         /* 下マージンで手牌との間隔確保 */
+}
 
+/* 副露（フーロ）コンテナ：ポン、チー、カンした牌の表示エリア */
 .furo-container {
-  float: right; }
+  float: right;                /* 右側に浮動配置（手牌の右側に表示） */
+}
 
+/* 手牌コンテナ：プレイヤーが持っている牌の表示エリア */
 .tehai-container {
-  margin-left: 121px;
-  float: left; }
+  margin-left: 121px;          /* 左マージンで位置調整 */
+  float: left;                 /* 左側に浮動配置 */
+}
 
+/* ツモ牌：最後にツモった14枚目の牌（少し離して表示） */
 .tsumo-pai {
-  margin-left: 5.5px; }
+  margin-left: 5.5px;          /* 手牌から少し離して配置 */
+}
 
+/* プレイヤーエリアのフッター：floatの解除 */
 .player-footer {
-  clear: both; }
+  clear: both;                 /* 左右のfloat（手牌・副露）をクリア */
+}
 
+/* 牌の行：牌を水平に並べる際の高さ設定 */
 .pai-row {
-  height: 40px; }
+  height: 40px;                /* 牌1つ分の高さを確保 */
+}
 
+/* コントロールパネル：操作ボタンや情報表示エリア */
 .controller-container {
-  position: absolute;
-  left: 550px;
-  top: 0px;
-  padding: 8px; }
+  position: absolute;          /* 絶対位置指定 */
+  left: 550px;                 /* 麻雀卓の右隣に配置 */
+  top: 0px;                    /* 上端に配置 */
+  padding: 8px;                /* 内側に8pxの余白 */
+}
 
+/* ログ表示ラベル：アクション情報などのテキスト表示 */
 .log-label {
-  font-family: monospace;
-  white-space: pre; }
+  font-family: monospace;      /* 等幅フォントでデータを見やすく */
+  white-space: pre;            /* 改行や空白文字をそのまま表示 */
+}
 
 /*# sourceMappingURL=style.css.map */
+/* ソースマップファイルへの参照（デバッグ用） */

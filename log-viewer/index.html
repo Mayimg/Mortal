@@ -1,288 +1,417 @@
+<!-- HTML5の文書タイプ宣言：ブラウザにHTML5として解釈させる -->
 <!DOCTYPE html>
+<!-- HTMLの開始タグ：文書全体の開始を示す -->
 <html><head>
+  <!-- 文字エンコーディングの設定：UTF-8で日本語文字を正しく表示 -->
   <meta charset="utf-8">
+  <!-- ブラウザのタイトルバーに表示されるページタイトル -->
   <title>Mahjong Archive Player</title>
+  <!-- 外部CSSスタイルシートの読み込み：牌譜ビューアーのスタイル定義 -->
   <link rel="stylesheet" type="text/css" href="files/css/style.css">
+  
+  <!-- jQuery JavaScriptライブラリの読み込み：DOM操作やイベント処理を簡単にする -->
   <script src="files/js/jquery-1.7.2.min.js"></script>
+  <!-- Dytemライブラリの読み込み：テンプレートエンジンとして使用 -->
   <script src="files/js/dytem.js"></script>
+  
+  <!-- インラインJavaScript：グローバル変数の初期化 -->
   <script>
-    // 必要なグローバル変数を定義（archive_player.jsが期待する形で）
+    // archive_player.jsで使用されるグローバル変数を事前に定義
+    // allActions: MJAI形式のゲームアクション（打牌、ツモなど）を格納する配列
     var allActions = [];
+    // resourceDir: 画像やその他のリソースファイルが格納されているディレクトリパス
     var resourceDir = "files";
   </script>
+  
+  <!-- 牌譜再生機能の核となるJavaScriptファイルの読み込み -->
   <script src="files/js/archive_player.js"></script>
+  <!-- メインの牌譜処理JavaScript：ファイル読み込み、解凍、パース機能 -->
   <script>
-    // gzip解凍処理
+    /**
+     * gzip圧縮されたファイルを解凍する非同期関数
+     * 最新のブラウザのDecompressionStream APIを使用してストリーミング解凍
+     * @param {ArrayBuffer} arrayBuffer - 圧縮されたデータのバイナリ配列
+     * @returns {Promise<string>} 解凍されたテキストデータ
+     */
     async function decompressGzip(arrayBuffer) {
-      // DecompressionStream APIのサポートチェック
+      // ブラウザがDecompressionStream APIをサポートしているかチェック
+      // この機能は比較的新しいため、古いブラウザではエラーになる
       if (!window.DecompressionStream) {
         throw new Error('Your browser does not support DecompressionStream API. Please use a modern browser or select an uncompressed file.');
       }
       
+      // ArrayBufferをReadableStreamに変換
       const stream = new Response(arrayBuffer).body;
+      // gzip解凍パイプラインを作成（ストリーミング処理で効率的）
       const decompressedStream = stream.pipeThrough(new DecompressionStream('gzip'));
+      // 解凍されたストリームをResponseオブジェクトにラップ
       const decompressedResponse = new Response(decompressedStream);
+      // ArrayBufferとして解凍データを取得
       const decompressedArrayBuffer = await decompressedResponse.arrayBuffer();
+      // UTF-8文字列にデコードして返す
       return new TextDecoder().decode(decompressedArrayBuffer);
     }
     
-    // JSONデータのパース処理
+    /**
+     * JSONL（JSON Lines）形式のデータを解析する関数
+     * 各行が独立したJSONオブジェクトになっている形式を処理
+     * MJAI形式の牌譜データは通常この形式で保存されている
+     * @param {string} content - 解析対象の文字列（複数行のJSONデータ）
+     * @returns {Array<Object>} パースされたJSONオブジェクトの配列
+     */
     function parseJsonLines(content) {
+      // 前後の空白を除去し、改行で分割、空行をフィルタリング
       const lines = content.trim().split('\n').filter(line => line.trim());
+      
+      // 各行をJSONとしてパースし、エラーハンドリングも含める
       return lines.map((line, index) => {
         try {
+          // JSON.parse()で各行をJavaScriptオブジェクトに変換
           return JSON.parse(line);
         } catch (err) {
+          // パースエラーが発生した場合の詳細ログ出力
           console.error(`JSON parse error at line ${index + 1}:`, line);
+          // ユーザーにわかりやすいエラーメッセージで例外を投げる
           throw new Error(`Invalid JSON format at line ${index + 1}`);
         }
       });
     }
     
-    // ゲームデータの初期化と表示
+    /**
+     * 牌譜データを読み込んでゲームビューアーを初期化する関数
+     * パースされたアクション配列から局（kyoku）を構築し、UIを更新する
+     * @param {Array<Object>} newActions - パースされたMJAIアクションの配列
+     * @param {string} fileName - 読み込んだファイルの名前（表示用）
+     */
     function initializeGame(newActions, fileName) {
+      // デバッグ用：パースされたアクション数をコンソールに出力
       console.log(`Parsed ${newActions.length} actions`);
       
-      // グローバル変数をリセット
-      allActions = newActions;
-      kyokus = [];
-      currentKyokuId = 0;
-      currentActionId = 0;
-      playerInfos = [{}, {}, {}, {}];
+      // ゲーム状態を管理するグローバル変数をリセット
+      allActions = newActions;      // 全アクションデータ
+      kyokus = [];                  // 局データの配列
+      currentKyokuId = 0;           // 現在表示中の局のID
+      currentActionId = 0;          // 現在表示中のアクションのID  
+      playerInfos = [{}, {}, {}, {}]; // 4人のプレイヤー情報
       
-      // 全アクションを読み込み
+      // 全アクションを順次処理して局データを構築
+      // この処理でMJAIの線形データを局単位に構造化する
       for (let i = 0; i < allActions.length; i++) {
         loadAction(allActions[i]);
       }
       
+      // デバッグ用：構築された局数をコンソールに出力
       console.log(`Loaded ${kyokus.length} kyokus`);
       
-      // 局選択セレクタを更新
+      // 局選択用のセレクトボックスを動的に生成
       const kyokuSelector = $("#kyokuSelector").get(0);
-      kyokuSelector.innerHTML = '';
+      kyokuSelector.innerHTML = ''; // 既存の選択肢をクリア
+      
+      // 各局に対応する選択肢を作成
       for (let i = 0; i < kyokus.length; i++) {
+        // 場風（東/南/西/北）を文字列に変換
         const bakazeStr = BAKAZE_TO_STR[kyokus[i].bakaze];
-        const honba = kyokus[i].honba;
-        const kyokuNum = kyokus[i].kyokuNum;
+        const honba = kyokus[i].honba;        // 本場数
+        const kyokuNum = kyokus[i].kyokuNum;  // 局数（1〜4）
+        // 表示ラベルを「東1局 0本場」のような形式で作成
         const label = `${bakazeStr}${kyokuNum}局 ${honba}本場`;
+        // セレクトボックスにオプションを追加
         kyokuSelector.options[i] = new Option(label, i);
       }
       
-      // UI要素を有効化（file-loaderは常に表示）
+      // CSSクラスを追加してゲーム読み込み済み状態のUIに切り替え
       document.body.classList.add('game-loaded');
       
-      // プレイヤー名を更新
+      // プレイヤー名をUIに反映（Dytemテンプレートエンジンを使用）
       for (let i = 0; i < 4; i++) {
         if (playerInfos[i].name) {
+          // Dytemのデータバインディング機能でプレイヤー名を表示
           Dytem.playerInfos.at(i).name.text(playerInfos[i].name);
         }
       }
       
-      // 最初のアクションを表示
+      // 初期表示を最初のアクションに設定
       currentActionId = 0;
-      $("#action-id-label").val(0);
+      $("#action-id-label").val(0); // アクション番号入力フィールドを更新
       if (kyokus.length > 0) {
-        renderCurrentAction();
+        renderCurrentAction(); // 盤面を描画
       }
       
+      // ファイル情報を表示エリアに設定
       document.getElementById('file-info').textContent = `Loaded: ${fileName} (${allActions.length} actions)`;
     }
     
-    // ファイル読み込み処理
+    /**
+     * ファイル選択時に呼び出される非同期関数
+     * .gz（gzip圧縮）と通常のテキストファイルの両方に対応
+     * @param {Event} event - ファイル選択イベントオブジェクト
+     */
     async function loadMjaiFile(event) {
+      // 選択されたファイルオブジェクトを取得
       const file = event.target.files[0];
-      if (!file) return;
+      if (!file) return; // ファイルが選択されていない場合は何もしない
       
-      // ファイル入力をリセット（同じファイルを再選択可能にする）
+      // ファイル入力要素への参照を保存（後でリセットするため）
       const fileInput = event.target;
       
       try {
-        let content;
+        let content; // ファイルの内容を格納する変数
         
-        // ファイル拡張子で処理を分岐
+        // ファイル拡張子を判定して適切な読み込み方法を選択
         if (file.name.endsWith('.gz')) {
-          // gzipファイルの場合
+          // gzip圧縮ファイルの処理
           console.log('Processing gzip file...');
+          // ファイルをバイナリデータ（ArrayBuffer）として読み込み
           const arrayBuffer = await file.arrayBuffer();
+          // gzip解凍処理を実行
           content = await decompressGzip(arrayBuffer);
         } else {
-          // 通常のテキストファイルの場合
+          // 通常のテキストファイルの処理（.json, .jsonl, .txtなど）
           console.log('Processing text file...');
+          // ファイルをテキストとして直接読み込み
           content = await file.text();
         }
         
-        // JSONをパース
+        // 読み込んだコンテンツをJSONL形式としてパース
         const newActions = parseJsonLines(content);
         
-        // ゲームを初期化
+        // パースされたデータでゲームビューアーを初期化
         initializeGame(newActions, file.name);
         
       } catch (error) {
-        alert('Error loading file: ' + error.message);
-        console.error('File loading error:', error);
+        // エラーが発生した場合の処理
+        alert('Error loading file: ' + error.message); // ユーザーにエラーを通知
+        console.error('File loading error:', error);   // 開発者向けの詳細ログ
       } finally {
+        // try/catchの結果に関わらず必ず実行される処理
         // ファイル入力をリセット（同じファイルを再選択可能にする）
         fileInput.value = '';
       }
     }
     
-    // ページロード完了後の処理
+    /**
+     * DOM（Document Object Model）が完全に読み込まれた後に実行される処理
+     * jQueryの$(function(){})はDOMContentLoadedイベントのラッパー
+     */
     $(function() {
-      // Lastボタンのハンドラーを追加
+      // 「Last」ボタンがクリックされた時のイベントハンドラーを設定
+      // 現在の局の最後のアクションに一気にジャンプする機能
       $("#last-button").click(function() {
+        // 現在表示中の局データを取得
         const kyoku = getCurrentKyoku();
+        
+        // 局データが存在し、かつアクションが1つ以上ある場合
         if (kyoku && kyoku.actions && kyoku.actions.length > 0) {
+          // 配列の最後のインデックス（length - 1）を現在のアクションIDに設定
           currentActionId = kyoku.actions.length - 1;
+          // アクション番号入力フィールドを更新
           $("#action-id-label").val(currentActionId);
+          // 盤面を最新の状態で再描画
           renderCurrentAction();
         }
       });
     });
   </script>
+  <!-- インラインCSS：ページ固有のスタイル定義 -->
   <style>
+    /* ページ全体の基本スタイル設定 */
     body {
-      margin: 0;
-      padding: 0;
-      font-family: Arial, sans-serif;
+      margin: 0;              /* ブラウザのデフォルトマージンを除去 */
+      padding: 0;             /* ブラウザのデフォルトパディングを除去 */
+      font-family: Arial, sans-serif; /* フォントファミリーを指定（可読性重視） */
     }
     
-    /* ファイル選択部分のスタイル */
+    /* ファイル選択エリアのスタイル定義 */
     #file-loader {
-      padding: 20px;
-      text-align: center;
-      background-color: #f0f0f0;
-      border-bottom: 2px solid #ccc;
-      position: relative;
-      z-index: 1000;
-      box-sizing: border-box;
+      padding: 20px;                    /* 内側の余白を20px */
+      text-align: center;               /* テキストを中央揃え */
+      background-color: #f0f0f0;        /* 薄いグレーの背景色 */
+      border-bottom: 2px solid #ccc;    /* 下部に境界線 */
+      position: relative;               /* 相対位置指定（後でfixedに変更） */
+      z-index: 1000;                    /* 重なり順を最前面に設定 */
+      box-sizing: border-box;           /* paddingとborderを幅に含める */
     }
     
-    /* ゲーム読み込み後はfixedに変更 */
+    /* ゲーム読み込み後のfile-loaderレイアウト変更 */
+    /* body.game-loadedクラスが追加された時の固定ヘッダー化 */
     body.game-loaded #file-loader {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
+      position: fixed;                  /* 画面上部に固定配置 */
+      top: 0;                          /* 上端に配置 */
+      left: 0;                         /* 左端に配置 */
+      right: 0;                        /* 右端まで伸ばす */
     }
+    
+    /* ファイル選択エリア内の見出しスタイル */
     #file-loader h2 {
-      margin-top: 0;
-      font-size: 18px;
+      margin-top: 0;                   /* 上マージンを除去 */
+      font-size: 18px;                 /* フォントサイズを18pxに設定 */
     }
+    
+    /* ファイル情報表示エリアのスタイル */
     #file-info {
-      margin-top: 10px;
-      color: #666;
-      font-size: 14px;
+      margin-top: 10px;                /* 上マージンを10px */
+      color: #666;                     /* 文字色をダークグレーに */
+      font-size: 14px;                 /* フォントサイズを14pxに */
     }
-    /* ゲーム読み込み後のfile-loader調整 */
+    
+    /* ゲーム読み込み後のfile-loader詳細調整 */
     body.game-loaded #file-loader {
-      padding: 10px 20px;
-      border-bottom: 2px solid #ccc;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      padding: 10px 20px;              /* パディングを縮小（コンパクト化） */
+      border-bottom: 2px solid #ccc;    /* 下ボーダーを維持 */
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* 軽いドロップシャドウを追加 */
     }
+    
+    /* ゲーム読み込み後は見出しとパラグラフを非表示 */
     body.game-loaded #file-loader h2 {
-      display: none;
+      display: none;                   /* 見出しを非表示 */
     }
     body.game-loaded #file-loader p {
-      display: none;
+      display: none;                   /* 説明文を非表示 */
     }
     
-    /* ゲームコンテナのスタイル */
+    /* ゲームコンテナ（牌譜表示部分）のスタイル */
     #game-container {
-      display: none;
-      margin: 0;
-      padding: 20px;
-      overflow: visible;
+      display: none;                   /* 初期状態では非表示 */
+      margin: 0;                       /* マージンをゼロに */
+      padding: 20px;                   /* 内側に20pxの余白 */
+      overflow: visible;               /* 内容がはみ出ても表示 */
     }
     
-    /* ゲーム読み込み後の表示 */
+    /* ゲーム読み込み後のゲームコンテナ表示設定 */
     body.game-loaded #game-container {
-      display: block;
-      transform: scale(2.3);
-      transform-origin: left top;
-      margin-top: 20px; /* ヘッダー下の余白 */
-      width: 600px; /* 元のコンテンツ幅を制限 */
+      display: block;                  /* ブロック要素として表示 */
+      transform: scale(2.3);           /* 2.3倍に拡大表示（視認性向上） */
+      transform-origin: left top;      /* 拡大の基準点を左上に設定 */
+      margin-top: 20px;               /* ヘッダー下に20pxの余白 */
+      width: 600px;                   /* 元のコンテンツ幅を600pxに制限 */
     }
     
-    /* ゲーム読み込み後のレイアウト調整 */
+    /* ゲーム読み込み後のbody全体のレイアウト調整 */
     body.game-loaded {
-      padding-top: 80px; /* fixed headerの高さ分 */
+      padding-top: 80px;              /* 固定ヘッダーの高さ分だけ上パディングを追加 */
     }
     
-    /* style.cssのbodyのtransformを上書き */
+    /* 外部style.cssの設定を上書きするスタイル */
     html, body {
-      transform: none !important;
-      overflow: hidden;
-      height: 100%;
+      transform: none !important;      /* 他のCSSのtransform設定を強制的に無効化 */
+      overflow: hidden;                /* スクロールバーを非表示 */
+      height: 100%;                    /* 高さを画面全体に設定 */
     }
     
-    /* 牌盤と操作パネルの表示制御 */
+    /* 牌盤と操作パネルの強制表示設定 */
     .board {
-      display: block !important;
+      display: block !important;       /* 牌盤を強制的にブロック表示 */
     }
     .controller-container {
-      display: block !important;
+      display: block !important;       /* 操作パネルを強制的にブロック表示 */
     }
   </style>
-</head><body>
+  </style>
+</head>
+<!-- HTML文書の<body>部分：ユーザーに表示される内容を定義 -->
+<body>
+  <!-- ファイル選択部分：ユーザーが牌譜ファイルを読み込むためのUI -->
   <div id="file-loader">
+    <!-- アプリケーションのタイトル -->
     <h2>MJAI Log Viewer</h2>
+    <!-- ユーザーへの説明文 -->
     <p>Select an MJAI format log file to view:</p>
+    <!-- ファイル選択input要素：
+         accept属性で対応ファイル形式を制限
+         onchange属性でファイル選択時の処理を指定 -->
     <input type="file" id="file-input" accept=".json,.jsonl,.txt,.gz" onchange="loadMjaiFile(event)">
+    <!-- ファイル読み込み状況を表示するエリア -->
     <div id="file-info"></div>
   </div>
 
+  <!-- ゲームメイン表示エリア：牌譜の内容を可視化する部分 -->
   <div id="game-container">
+    <!-- 牌譜盤面表示部分：麻雀の盤面全体を表現 -->
     <div class="board">
+      <!-- プレイヤー情報表示（4人分）：Dytemテンプレートでrepeated属性により4回複製される -->
       <div id="players" class="repeated player">
+        <!-- 各プレイヤーの河（ホ）：捨て牌を表示するエリア -->
         <div class="ho">
+          <!-- 河の行：捨て牌を行単位で整理表示 -->
           <div id="players.hoRows" class="repeated pai-row">
+            <!-- 捨て牌の画像：各牌をimg要素で表示 -->
             <img id="players.hoRows.pais" class="repeated">
           </div>
         </div>
+        <!-- 手牌表示コンテナ：プレイヤーが持っている牌 -->
         <div class="tehai-container pai-row">
+          <!-- 手牌の各牌：並んでいる13枚の牌 -->
           <img id="players.tehais" class="repeated">
+          <!-- ツモ牌：最後にツモった14枚目の牌（少し離して表示） -->
           <img id="players.tsumoPai" class="tsumo-pai">
         </div>
+        <!-- 副露表示コンテナ：ポン、チー、カンした牌の組み合わせ -->
         <div class="furo-container pai-row">
+          <!-- 各副露グループ：ポン（3枚）、チー（3枚）、カン（4枚）など -->
           <span id="players.furos" class="repeated">
+            <!-- 副露内の各牌画像 -->
             <img id="players.furos.pais" class="repeated">
           </span>
         </div>
+        <!-- プレイヤー情報のフッター部分 -->
         <div class="player-footer"></div>
       </div>
+      <!-- 王牌（ワンパイ）表示コンテナ：ドラ表示牌や嶺上牌など -->
       <div class="wanpais-container">
+        <!-- 王牌の各牌画像 -->
         <img id="wanpais" class="repeated">
       </div>
     </div>
 
+    <!-- コントロールパネル：牌譜の再生操作とゲーム情報表示 -->
     <div class="controller-container">
+      <!-- 局選択エリア -->
       <div>
+        <!-- 局選択ドロップダウン：「東1局 0本場」などの選択肢 -->
         <select id="kyokuSelector"></select>
       </div>
+      
+      <!-- アクション操作ボタン群 -->
       <div>
+        <!-- 前のアクションに戻るボタン -->
         <button id="prev-button">Prev</button>
+        <!-- 次のアクションに進むボタン -->
         <button id="next-button">Next</button>
+        <!-- アクション番号直接入力フィールド：特定の手順にジャンプ -->
         <input id="action-id-label" type="text" size="3" value="0">
+        <!-- 入力された番号のアクションにジャンプするボタン -->
         <button id="go-button">Go</button>
+        <!-- 現在の局の最終アクションに一気にジャンプするボタン -->
         <button id="last-button" style="margin-left: 1em;">Last</button>
       </div>
+      
+      <!-- プレイヤー情報テーブル：名前、スコア、視点情報を表形式で表示 -->
       <table border="0">
+        <!-- テーブルヘッダー：各列の項目名 -->
         <tr>
-          <th>#</th>
-          <th>Name</th>
-          <th>Score</th>
+          <th>#</th>     <!-- プレイヤー番号 -->
+          <th>Name</th>   <!-- プレイヤー名 -->
+          <th>Score</th>  <!-- 現在スコア -->
+          <!-- 視点切り替えボタン：どのプレイヤーの視点で見るかを選択 -->
           <th><button id="viewpoint-button">Viewpoint</button></th>
         </tr>
+        <!-- プレイヤー情報行：Dytemのrepeated属性で4人分自動生成 -->
         <tr id="playerInfos" class="repeated">
-          <td id="playerInfos.index"></td>
-          <td id="playerInfos.name"></td>
-          <td id="playerInfos.score"></td>
-          <td id="playerInfos.viewpoint"></td>
+          <td id="playerInfos.index"></td>     <!-- プレイヤーインデックス -->
+          <td id="playerInfos.name"></td>      <!-- プレイヤー名 -->
+          <td id="playerInfos.score"></td>     <!-- スコア -->
+          <td id="playerInfos.viewpoint"></td> <!-- 視点選択UI -->
         </tr>
       </table>
+      
+      <!-- 現在のアクション情報表示：JSONデータをそのまま表示 -->
       <div><pre id="action-label"></pre></div>
+      <!-- ログ情報表示：その他のゲーム進行情報 -->
       <div id="log-label" class="log-label"></div>
     </div>
   </div>
 
-</body></html>
+
+<!-- HTML文書の終了 -->
+</body>
+</html>

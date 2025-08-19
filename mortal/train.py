@@ -95,14 +95,14 @@ def train(is_first_run=False):
     scheduler = LinearWarmUpCosineAnnealingLR(optimizer, **config['optim']['scheduler'])
     scaler = GradScaler(device.type, enabled=enable_amp)
     test_player = TestPlayer()
-    # best_perf = {
-    #     'avg_rank': 4.,
-    #     'avg_pt': -135.,
-    # }
     best_perf = {
-        'avg_rank': 2.5,
-        'avg_pt': 0.,
+        'avg_rank': 4.,
+        'avg_pt': -135.,
     }
+    # best_perf = {
+    #     'avg_rank': 2.5,
+    #     'avg_pt': 0.,
+    # }
 
     steps = 0
     state_file = config['control']['state_file']

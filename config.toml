@@ -1,8 +1,8 @@
 [control]
 version = 4
-state_file = 'models/test_mortal25.pth'
-best_state_file = 'models/test_best25.pth'
-tensorboard_dir = 'logs/tensorboard_test25'
+state_file = 'models/test_mortal27.pth'
+best_state_file = 'models/test_best26.pth'
+tensorboard_dir = 'logs/tensorboard_test26'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
@@ -107,18 +107,18 @@ max_steps = 1000000
 [baseline.test]
 device = 'cuda:0'
 enable_compile = false
-state_file = 'models/test_best15.pth'
+state_file = 'models/test_best23_2.pth'
 
 [1v3]
 seed_key = -1  # -1 for random seed
 games_per_iter = 20000
 iters = 1
-log_dir = 'logs/1v3_battles_23_vs_15'
+log_dir = 'logs/1v3_battles_25_vs_23'
 
 [1v3.challenger]
 device = 'cuda:0'
 name = 'mortal_best'
-state_file = 'models/test_best23_2.pth'
+state_file = 'models/test_best25.pth'
 stochastic_latent = false
 enable_compile = false
 enable_amp = true
@@ -127,7 +127,7 @@ enable_rule_based_agari_guard = true
 [1v3.champion]
 device = 'cuda:0'
 name = 'mortal_baseline'
-state_file = 'models/test_best15.pth'
+state_file = 'models/test_best23_2.pth'
 stochastic_latent = false
 enable_compile = false
 enable_amp = true

@@ -43,18 +43,36 @@ window.Dytem = {
       return _results2;
     }
   },
+  /**
+   * DOM要素をスキャンして、id属性を持つ子要素を
+   * 指定されたターゲットオブジェクトのプロパティとして登録する
+   * repeatedクラスを持つ要素はRepeatedオブジェクトとして管理
+   * @param {jQuery} elem - スキャン対象の要素
+   * @param {string|null} prefix - IDのプレフィックス（階層構造用）
+   * @param {Object} target - プロパティを登録する対象オブジェクト
+   * @returns {void}
+   */
   addChildrenField: function(elem, prefix, target) {
     var _this = this;
+    // id属性を持つ全ての子要素を検索し、各要素に対して処理を実行
     return elem.find("[id]").each(function(i, child) {
       var childId, escPrefix, name;
+      // 子要素のid属性を取得
       childId = $(child).attr("id");
+      // プレフィックスがある場合は、元のid属性を除去（重複防止）
       if (prefix) $(child).removeAttr("id");
+      // 正規表現用にドットをエスケープ
       escPrefix = prefix ? prefix.replace(/\./, "\\.") : "";
+      // IDが指定されたパターンにマッチするかチェック
+      // パターン: プレフィックス + ドット以外の文字列
       if (childId.match(new RegExp("^" + escPrefix + "([^\\.]+)$"))) {
+        // マッチした部分をプロパティ名として使用
         name = RegExp.$1;
         if ($(child).hasClass("repeated")) {
+          // repeatedクラスを持つ要素はRepeatedオブジェクトとして管理
           return target[name] = new Repeated(childId, $(child));
         } else {
+          // 通常の要素はjQueryオブジェクトとして登録
           return target[name] = $(child);
         }
       }
@@ -123,6 +141,7 @@ Repeated = (function() {
     return this.__elems = [];
   };
 
+  // Repeatedクラスを返す
   return Repeated;
 
-})();
+})(); // 即座実行関数（IIFE）でRepeatedクラスを定義
