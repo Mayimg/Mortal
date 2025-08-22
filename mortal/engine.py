@@ -4,6 +4,8 @@ import torch
 import numpy as np
 from torch.distributions import Normal, Categorical
 from typing import *
+from .policy_ach import PolicyNet
+from .config import config
 
 class MortalEngine:
     def __init__(
@@ -21,6 +23,8 @@ class MortalEngine:
         boltzmann_epsilon = 0,
         boltzmann_temp = 1,
         top_p = 1,
+        policy_mode: str = 'auto',
+        ach_eta: float = None,
     ):
         self.engine_type = 'mortal'
         self.device = device or torch.device('cpu')
@@ -39,6 +43,16 @@ class MortalEngine:
         self.boltzmann_epsilon = boltzmann_epsilon
         self.boltzmann_temp = boltzmann_temp
         self.top_p = top_p
+
+        # ACH policy integration
+        if policy_mode == 'auto':
+            self.policy_mode = 'ach' if isinstance(self.dqn, PolicyNet) else 'dqn'
+        else:
+            self.policy_mode = policy_mode
+        if ach_eta is None:
+            self.ach_eta = float(config.get('ach', {}).get('eta', 1.0))
+        else:
+            self.ach_eta = float(ach_eta)
 
     def react_batch(self, obs, masks, invisible_obs):
         try:
@@ -67,18 +81,34 @@ class MortalEngine:
                 q_out = self.dqn(latent, masks)
             case 2 | 3 | 4:
                 phi = self.brain(obs)
-                q_out = self.dqn(phi, masks)
+                if self.policy_mode == 'ach':
+                    logits = self.dqn(phi, masks)
+                    # Ensure invalid actions are -inf and apply Hedge scale η
+                    logits = logits.masked_fill(~masks, -torch.inf)
+                    logits = self.ach_eta * logits
+                else:
+                    q_out = self.dqn(phi, masks)
 
-        if self.boltzmann_epsilon > 0:
-            is_greedy = torch.full((batch_size,), 1-self.boltzmann_epsilon, device=self.device).bernoulli().to(torch.bool)
-            logits = (q_out / self.boltzmann_temp).masked_fill(~masks, -torch.inf)
-            sampled = sample_top_p(logits, self.top_p)
-            actions = torch.where(is_greedy, q_out.argmax(-1), sampled)
+        if self.policy_mode == 'ach':
+            # Sample from Softmax(η·y). Optional epsilon chooses greedy vs sample.
+            if self.boltzmann_epsilon > 0:
+                is_greedy = torch.full((batch_size,), 1 - self.boltzmann_epsilon, device=self.device).bernoulli().to(torch.bool)
+                sampled = sample_top_p(logits, self.top_p)
+                actions = torch.where(is_greedy, logits.argmax(-1), sampled)
+            else:
+                is_greedy = torch.ones(batch_size, dtype=torch.bool, device=self.device)
+                actions = logits.argmax(-1)
+            return actions.tolist(), logits.tolist(), masks.tolist(), is_greedy.tolist()
         else:
-            is_greedy = torch.ones(batch_size, dtype=torch.bool, device=self.device)
-            actions = q_out.argmax(-1)
-
-        return actions.tolist(), q_out.tolist(), masks.tolist(), is_greedy.tolist()
+            if self.boltzmann_epsilon > 0:
+                is_greedy = torch.full((batch_size,), 1-self.boltzmann_epsilon, device=self.device).bernoulli().to(torch.bool)
+                logits = (q_out / self.boltzmann_temp).masked_fill(~masks, -torch.inf)
+                sampled = sample_top_p(logits, self.top_p)
+                actions = torch.where(is_greedy, q_out.argmax(-1), sampled)
+            else:
+                is_greedy = torch.ones(batch_size, dtype=torch.bool, device=self.device)
+                actions = q_out.argmax(-1)
+            return actions.tolist(), q_out.tolist(), masks.tolist(), is_greedy.tolist()
 
 def sample_top_p(logits, p):
     if p >= 1:

@@ -7,7 +7,8 @@ import numpy as np
 import time
 import gc
 from os import path
-from .model import Brain, DQN
+from .model import Brain
+from .policy_ach import PolicyNet
 from .player import TrainPlayer
 from .common import send_msg, recv_msg
 from .config import config
@@ -20,7 +21,12 @@ def main():
     conv_channels = config['resnet']['conv_channels']
 
     mortal = Brain(version=version, num_blocks=num_blocks, conv_channels=conv_channels).to(device).eval()
-    dqn = DQN(version=version).to(device)
+    # Second head: DQN or ACH policy. Reuse server field 'dqn' for compatibility.
+    if config['control'].get('algo', '').lower() == 'ach':
+        dqn = PolicyNet().to(device)
+    else:
+        from .model import DQN as _DQN
+        dqn = _DQN(version=version).to(device)
     if config['online']['enable_compile']:
         mortal.compile()
         dqn.compile()
@@ -45,9 +51,31 @@ def main():
                 if rsp['status'] == 'ok':
                     param_version = rsp['param_version']
                     break
-                time.sleep(3)
+                # else:
+                #     logging.info(f'waiting param: status={rsp.get("status")}, ver={param_version}')
+            time.sleep(3)
         mortal.load_state_dict(rsp['mortal'])
-        dqn.load_state_dict(rsp['dqn'])
+        try:
+            dqn.load_state_dict(rsp['dqn'])
+        except RuntimeError as ex:
+            # Attempt warm-start mapping from DQN(v4) linear 'net' to PolicyNet 'head'
+            sd = rsp['dqn']
+            if (
+                config['control'].get('algo', '').lower() == 'ach'
+                and hasattr(dqn, 'head')
+                and isinstance(sd, dict)
+                and 'net.weight' in sd and 'net.bias' in sd
+            ):
+                try:
+                    mapped = {
+                        'head.weight': sd['net.weight'][1:].clone(),
+                        'head.bias': sd['net.bias'][1:].clone(),
+                    }
+                    dqn.load_state_dict(mapped, strict=True)
+                except Exception:
+                    raise ex
+            else:
+                raise ex
         logging.info('param has been updated')
 
         rankings, file_list = train_player.train_play(mortal, dqn, device)
