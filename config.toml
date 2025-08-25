@@ -1,14 +1,14 @@
 [control]
 version = 4
-state_file = 'models/test_mortal27.pth'
-best_state_file = 'models/test_best26.pth'
-tensorboard_dir = 'logs/tensorboard_test26'
+state_file = 'models/test_mortal39.pth'
+best_state_file = 'models/test_best39.pth'
+tensorboard_dir = 'logs/tensorboard_test39'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
-save_every = 10000
-test_every = 10000
-submit_every = 10000
+save_every = 100
+test_every = 4000
+submit_every = 400
 print_every = 100
 device = 'cuda:0'
 enable_amp = true
@@ -16,6 +16,16 @@ enable_cudnn_benchmark = true
 enable_compile = false
 print_states = true
 online = true
+algo = 'ach'
+
+[ach]
+eta = 0.5              # Hedge 係数
+logit_threshold = 3.0  # ロジットしきい値（±値でクリップ）
+ratio_clip = 0.5       # PPO の比率クリップ ε
+gae_lambda = 0.95      # 便宜上保持（実質 MC）
+entropy_coef = 2e-2    # エントロピー係数 β
+value_coef = 0.5       # 価値損失の係数 α
+batch_size = 2048
 
 [baseline.train]
 device = 'cuda:0'
@@ -23,9 +33,9 @@ enable_compile = false
 state_file = 'models/test_best15.pth'  # ベースライン（対戦相手）モデル
 
 [train_play.default]
-games = 800
+games = 400
 log_dir = 'logs/train_play'
-boltzmann_epsilon = 0.005
+boltzmann_epsilon = 1.0
 boltzmann_temp = 0.05
 top_p = 1.0
 repeats = 1
@@ -41,7 +51,7 @@ port = 5000  # サーバーのポート
 [online.server]
 buffer_dir = 'online_training_data/buffer'  
 drain_dir = 'online_training_data/drain'  
-capacity = 1600  
+capacity = 800
 force_sequential = false  
 sample_reuse_rate = 0  
 sample_reuse_threshold = 0  
@@ -58,7 +68,7 @@ augmented_first = false
 player_names_files = []
 
 [env]
-gamma = 1
+gamma = 0.995
 # pts = [6.0, 4.0, 2.0, 0.0]
 pts = [3.0, 1.0, -1.0, -3.0]
 
@@ -82,25 +92,28 @@ hidden_size = 1024
 next_rank_weight = 0.2
 
 [test_play]
-games = 10000
+games = 1000
 log_dir = 'logs/test_play'
 
 [freeze_bn]
-mortal = false
+mortal = true
 
 [optim]
-lr = 0.00001
+# lr = 0.00001
+lr = 0.00005
 weight_decay = 0.00001
 lr_scheduler = 'constant'
 eps = 1e-8
 betas = [0.9, 0.999]
-max_grad_norm = 0
+max_grad_norm = 1.0
 
 [optim.scheduler]
 # peak = 0.00001
 # final = 0.00001
-peak = 0.000001
-final = 0.000001
+# peak = 0.000001
+# final = 0.000001
+peak = 0.00025
+final = 0.00025
 warm_up_steps = 0
 max_steps = 1000000
 

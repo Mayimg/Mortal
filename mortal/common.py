@@ -28,6 +28,15 @@ def iter_grads(parameters, take=False):
                 yield p.grad
 
 def drain():
+    """Drain data and return only the directory for backward compatibility."""
+    drain_dir, _ = drain_with_version()
+    return drain_dir
+
+def drain_with_version():
+    """Drain one version batch and return (drain_dir, param_version).
+
+    If the server doesn't provide a version, param_version will be None.
+    """
     remote = (config['online']['remote']['host'], config['online']['remote']['port'])
     while True:
         with socket.socket() as conn:
@@ -37,9 +46,13 @@ def drain():
         if msg['count'] == 0:
             time.sleep(5)
             continue
-        return msg['drain_dir']
+        return msg['drain_dir'], msg.get('param_version')
 
 def submit_param(mortal, dqn, is_idle=False):
+    """Submit parameters to the server and return the new param_version.
+
+    For legacy servers that do not respond with a version, returns None.
+    """
     remote = (config['online']['remote']['host'], config['online']['remote']['port'])
     with socket.socket() as conn:
         conn.connect(remote)
@@ -49,6 +62,11 @@ def submit_param(mortal, dqn, is_idle=False):
             'dqn': dqn.state_dict(),
             'is_idle': is_idle,
         })
+        try:
+            rsp = recv_msg(conn)
+            return rsp.get('param_version')
+        except Exception:
+            return None
 
 def send_msg(conn: socket.socket, msg, packed=False):
     if packed:

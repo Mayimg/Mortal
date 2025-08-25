@@ -76,9 +76,18 @@ class Handler(BaseRequestHandler):
         self.send_msg(buf.getbuffer(), packed=True)
 
     def handle_submit_replay(self, msg):
+        # Place submitted logs into a versioned subdirectory: buffer_dir/v{param_version}
+        # so that trainer can drain a consistent batch per parameter version.
+        param_version = msg.get('param_version')
         with S.dir_lock:
+            if param_version is None:
+                # Fallback to flat buffer for compatibility, but keep behavior minimal.
+                target_dir = S.buffer_dir
+            else:
+                target_dir = path.join(S.buffer_dir, f'v{param_version}')
+                os.makedirs(target_dir, exist_ok=True)
             for filename, content in msg['logs'].items():
-                filepath = path.join(S.buffer_dir, f'{S.submission_id}_{filename}')
+                filepath = path.join(target_dir, f'{S.submission_id}_{filename}')
                 with open(filepath, 'wb') as f:
                     f.write(content)
             S.buffer_size += len(msg['logs'])
@@ -86,35 +95,77 @@ class Handler(BaseRequestHandler):
             logging.info(f'total buffer size: {S.buffer_size}')
 
     def handle_submit_param(self, msg):
+        # Update the deployed parameters and bump the param_version.
         with S.param_lock:
             S.mortal_param = msg['mortal']
             S.dqn_param = msg['dqn']
             S.param_version += 1
             if msg['is_idle']:
                 S.idle_param_version = S.param_version
+            current_version = S.param_version
+        # Reply with the new param_version so the trainer can track it.
+        self.send_msg({'status': 'ok', 'param_version': current_version})
 
     def handle_drain(self):
+        # Drain exactly one param_version batch at a time.
         drained_size = 0
+        drained_version = None
+        drain_target = None
         with S.dir_lock:
-            buffer_list = os.listdir(S.buffer_dir)
-            raw_count = len(buffer_list)
-            assert raw_count == S.buffer_size
-            if (not S.force_sequential or raw_count >= S.capacity) and raw_count > 0:
-                old_drain_list = os.listdir(S.drain_dir)
-                for filename in old_drain_list:
-                    filepath = path.join(S.drain_dir, filename)
-                    os.remove(filepath)
-                for filename in buffer_list:
-                    src = path.join(S.buffer_dir, filename)
-                    dst = path.join(S.drain_dir, filename)
-                    shutil.move(src, dst)
-                drained_size = raw_count
-                S.buffer_size = 0
-                logging.info(f'files transferred to trainer: {drained_size}')
-                logging.info(f'total buffer size: {S.buffer_size}')
+            entries = os.listdir(S.buffer_dir)
+            # Detect versioned subdirectories v{num}; if none, fall back to flat drain.
+            version_dirs = []
+            for name in entries:
+                full = path.join(S.buffer_dir, name)
+                if path.isdir(full) and name.startswith('v') and name[1:].isdigit():
+                    version_dirs.append((int(name[1:]), full))
+            if version_dirs:
+                # Choose the smallest (oldest) version to drain first.
+                version_dirs.sort(key=lambda x: x[0])
+                drained_version, src_dir = version_dirs[0]
+                file_list = os.listdir(src_dir)
+                raw_count = len(file_list)
+                if (not S.force_sequential or S.buffer_size >= S.capacity) and raw_count > 0:
+                    # Clean drain_dir and move into a versioned subdir
+                    if path.isdir(S.drain_dir):
+                        for filename in os.listdir(S.drain_dir):
+                            filepath = path.join(S.drain_dir, filename)
+                            if path.isdir(filepath):
+                                shutil.rmtree(filepath)
+                            else:
+                                os.remove(filepath)
+                    drain_target = path.join(S.drain_dir, f'v{drained_version}')
+                    os.makedirs(drain_target, exist_ok=True)
+                    for filename in file_list:
+                        shutil.move(path.join(src_dir, filename), path.join(drain_target, filename))
+                    # Remove emptied source dir
+                    shutil.rmtree(src_dir, ignore_errors=True)
+                    drained_size = raw_count
+                    S.buffer_size -= drained_size
+                    logging.info(f'files transferred to trainer: {drained_size} (v{drained_version})')
+                    logging.info(f'total buffer size: {S.buffer_size}')
+            else:
+                # Fallback: original flat buffer behavior
+                buffer_list = entries
+                raw_count = len(buffer_list)
+                assert raw_count == S.buffer_size
+                if (not S.force_sequential or raw_count >= S.capacity) and raw_count > 0:
+                    old_drain_list = os.listdir(S.drain_dir)
+                    for filename in old_drain_list:
+                        filepath = path.join(S.drain_dir, filename)
+                        os.remove(filepath)
+                    for filename in buffer_list:
+                        src = path.join(S.buffer_dir, filename)
+                        dst = path.join(S.drain_dir, filename)
+                        shutil.move(src, dst)
+                    drained_size = raw_count
+                    S.buffer_size = 0
+                    logging.info(f'files transferred to trainer: {drained_size}')
+                    logging.info(f'total buffer size: {S.buffer_size}')
         self.send_msg({
             'count': drained_size,
-            'drain_dir': S.drain_dir,
+            'drain_dir': drain_target if drain_target is not None else S.drain_dir,
+            'param_version': drained_version,
         })
 
     def send_msg(self, msg, packed=False):

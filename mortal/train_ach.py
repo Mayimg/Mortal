@@ -6,6 +6,7 @@ def train(is_first_run: bool = False):
     import os
     import gc
     import shutil
+    import copy
     import torch
     from os import path
     from glob import glob
@@ -134,8 +135,19 @@ def train(is_first_run: bool = False):
         logging.info(f'device: {device}')
 
     # Initial param push so actors can fetch ACH params immediately
-    submit_param(mortal, policy, is_idle=True)
+    init_ver = submit_param(mortal, policy, is_idle=True)
     logging.info('[ACH] initial param has been submitted')
+
+    # Track deployed snapshots by param_version to reconstruct pi_old exactly.
+    # Key: param_version (int or None), Value: (mortal_state, policy_state)
+    deployed_snapshots = {}
+    if init_ver is None:
+        # Legacy fallback: use a single None key
+        init_ver = None
+    deployed_snapshots[init_ver] = (
+        copy.deepcopy(mortal.state_dict()),
+        copy.deepcopy(policy.state_dict()),
+    )
 
     writer = SummaryWriter(config['control']['tensorboard_dir'])
     stats = {
@@ -160,18 +172,34 @@ def train(is_first_run: bool = False):
 
     def train_epoch():
         nonlocal steps
+        nonlocal deployed_snapshots
 
         # Build online file list from drain buffer
-        dirname = drain()
+        from .common import drain_with_version
+        dirname, data_ver = drain_with_version()
+        if data_ver not in deployed_snapshots:
+            logging.warning(
+                f'[ACH] drained version v{data_ver} not found in local snapshots; '
+                f'falling back to latest available'
+            )
         file_list = [path.join(dirname, p) for p in os.listdir(dirname)]
-        logging.info(f'[ACH] drained files: {len(file_list):,}')
-
-        # Snapshot policy for π_old (match current acting snapshot)
-        policy_old = PolicyNet().to(device)
-        policy_old.load_state_dict(policy.state_dict())
+        logging.info(f'[ACH] drained files: {len(file_list):,} (v{data_ver})')
+        # Rebuild exact acting snapshot (mortal_old, policy_old) for π_old
+        mortal_old = Brain(version=version, **config['resnet']).to(device).eval()
+        policy_old = PolicyNet().to(device).eval()
+        # Choose the matching snapshot by data_ver; if missing, pick the max available key
+        if data_ver in deployed_snapshots:
+            m_state, p_state = deployed_snapshots[data_ver]
+        else:
+            # Fallback: choose the snapshot with the largest version (most recent)
+            # This should be rare if server and trainer are aligned.
+            sel_ver = max(deployed_snapshots.keys(), key=lambda v: (-1 if v is None else v))
+            m_state, p_state = deployed_snapshots[sel_ver]
+        mortal_old.load_state_dict(m_state)
+        policy_old.load_state_dict(p_state)
         if enable_compile:
+            mortal_old.compile()
             policy_old.compile()
-        policy_old.eval()
 
         data_iter = FileDatasetsIter(
             version=version,
@@ -216,7 +244,8 @@ def train(is_first_run: bool = False):
 
                 # old policy
                 with torch.no_grad():
-                    logits_old = policy_old(phi, masks)
+                    phi_old = mortal_old(obs)
+                    logits_old = policy_old(phi_old, masks)
                     logits_old_centered = center_and_clip(logits_old, masks, logit_threshold)
                     pi_old = softmax_from_logits(logits_old_centered, masks, eta)
 
@@ -261,11 +290,6 @@ def train(is_first_run: bool = False):
                 optimizer.zero_grad(set_to_none=True)
 
             pb.update(1)
-
-            # Frequently submit latest params for actors (ACH: actors fetch latest model)
-            if steps % submit_every == 0:
-                submit_param(mortal, policy, is_idle=False)
-                logging.info('[ACH] param has been submitted (periodic)')
 
             if steps % save_every == 0:
                 pb.close()
@@ -353,6 +377,26 @@ def train(is_first_run: bool = False):
                 train_batch(obs[sl], actions[sl], masks[sl], steps_to_done[sl], kyoku_rewards[sl], player_ranks[sl])
                 start += batch_size
         pb.close()
+
+        # End of epoch: submit the latest params for the next data collection window
+        new_ver = submit_param(mortal, policy, is_idle=False)
+        # Store snapshot keyed by the returned server version for future drains
+        if new_ver not in deployed_snapshots:
+            deployed_snapshots[new_ver] = (
+                copy.deepcopy(mortal.state_dict()),
+                copy.deepcopy(policy.state_dict()),
+            )
+            # Optionally prune very old versions to limit memory
+            if len(deployed_snapshots) > 8:
+                # Keep the 8 most recent versions (None is treated as oldest)
+                keys_sorted = sorted(
+                    deployed_snapshots.keys(),
+                    key=lambda v: (-1 if v is None else v)
+                )
+                for k in keys_sorted[:-8]:
+                    if k in deployed_snapshots:
+                        del deployed_snapshots[k]
+        logging.info('[ACH] param has been submitted (epoch end); deployed snapshot updated')
 
     while True:
         train_epoch()
