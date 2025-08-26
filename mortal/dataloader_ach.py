@@ -157,11 +157,11 @@ class AchFileDatasetsIter(IterableDataset):
                 final_rank = int(rank_by_player_final[player_id])
                 R = float(self.pts[final_rank])
 
-                # Steps-to-done using apply_gamma; only counts discounting steps
+                # Steps-to-done from the end of the hanchan (ignore per-kyoku dones)
+                # Accumulate discounting steps using apply_gamma only.
                 steps_to_done = np.zeros(T, dtype=np.int64)
                 for i in range(T - 2, -1, -1):
-                    if not bool(dones[i]):
-                        steps_to_done[i] = steps_to_done[i + 1] + int(apply_gamma[i])
+                    steps_to_done[i] = steps_to_done[i + 1] + 1
 
                 # Compute discounted returns G_t = gamma^{steps_to_done} * R
                 G = (self.gamma ** steps_to_done.astype(np.float64)) * R

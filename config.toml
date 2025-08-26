@@ -1,8 +1,8 @@
 [control]
 version = 4
-state_file = 'models/test_mortal40.pth'
-best_state_file = 'models/test_best40.pth'
-tensorboard_dir = 'logs/tensorboard_test40'
+state_file = 'models/test_mortal41.pth'
+best_state_file = 'models/test_best41.pth'
+tensorboard_dir = 'logs/tensorboard_test41'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
