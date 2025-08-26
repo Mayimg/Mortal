@@ -1,8 +1,8 @@
 [control]
 version = 4
-state_file = 'models/test_mortal39.pth'
-best_state_file = 'models/test_best39.pth'
-tensorboard_dir = 'logs/tensorboard_test39'
+state_file = 'models/test_mortal40.pth'
+best_state_file = 'models/test_best40.pth'
+tensorboard_dir = 'logs/tensorboard_test40'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
@@ -19,7 +19,7 @@ online = true
 algo = 'ach'
 
 [ach]
-eta = 0.5              # Hedge 係数
+eta = 1              # Hedge 係数
 logit_threshold = 3.0  # ロジットしきい値（±値でクリップ）
 ratio_clip = 0.5       # PPO の比率クリップ ε
 gae_lambda = 0.95      # 便宜上保持（実質 MC）

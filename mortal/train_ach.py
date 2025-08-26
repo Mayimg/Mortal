@@ -19,7 +19,7 @@ def train(is_first_run: bool = False):
     from torch.utils.tensorboard import SummaryWriter
     from .common import submit_param, parameter_count, drain, filtered_trimmed_lines, tqdm
     from .player import TestPlayer
-    from .dataloader import FileDatasetsIter, worker_init_fn
+    from .dataloader_ach import AchFileDatasetsIter
     from .model import Brain
     from .policy_ach import PolicyNet, ValueHead
     from .libriichi.consts import obs_shape
@@ -138,8 +138,8 @@ def train(is_first_run: bool = False):
     init_ver = submit_param(mortal, policy, is_idle=True)
     logging.info('[ACH] initial param has been submitted')
 
-    # Track deployed snapshots by param_version to reconstruct pi_old exactly.
-    # Key: param_version (int or None), Value: (mortal_state, policy_state)
+    # Track deployed snapshots by param_version to reconstruct snapshot in iterator.
+    # Key: param_version (int or None), Value: (mortal_state, policy_state, value_state)
     deployed_snapshots = {}
     if init_ver is None:
         # Legacy fallback: use a single None key
@@ -147,6 +147,7 @@ def train(is_first_run: bool = False):
     deployed_snapshots[init_ver] = (
         copy.deepcopy(mortal.state_dict()),
         copy.deepcopy(policy.state_dict()),
+        copy.deepcopy(value.state_dict()),
     )
 
     writer = SummaryWriter(config['control']['tensorboard_dir'])
@@ -174,7 +175,7 @@ def train(is_first_run: bool = False):
         nonlocal steps
         nonlocal deployed_snapshots
 
-        # Build online file list from drain buffer
+        # Build online file list from drain buffer and select snapshot states
         from .common import drain_with_version
         dirname, data_ver = drain_with_version()
         if data_ver not in deployed_snapshots:
@@ -184,56 +185,49 @@ def train(is_first_run: bool = False):
             )
         file_list = [path.join(dirname, p) for p in os.listdir(dirname)]
         logging.info(f'[ACH] drained files: {len(file_list):,} (v{data_ver})')
-        # Rebuild exact acting snapshot (mortal_old, policy_old) for π_old
-        mortal_old = Brain(version=version, **config['resnet']).to(device).eval()
-        policy_old = PolicyNet().to(device).eval()
-        # Choose the matching snapshot by data_ver; if missing, pick the max available key
-        if data_ver in deployed_snapshots:
-            m_state, p_state = deployed_snapshots[data_ver]
-        else:
-            # Fallback: choose the snapshot with the largest version (most recent)
-            # This should be rare if server and trainer are aligned.
-            sel_ver = max(deployed_snapshots.keys(), key=lambda v: (-1 if v is None else v))
-            m_state, p_state = deployed_snapshots[sel_ver]
-        mortal_old.load_state_dict(m_state)
-        policy_old.load_state_dict(p_state)
-        if enable_compile:
-            mortal_old.compile()
-            policy_old.compile()
 
-        data_iter = FileDatasetsIter(
+        # Choose the matching snapshot by data_ver; if missing, pick the most recent
+        if data_ver in deployed_snapshots:
+            snapshot_states = deployed_snapshots[data_ver]
+        else:
+            sel_ver = max(deployed_snapshots.keys(), key=lambda v: (-1 if v is None else v))
+            snapshot_states = deployed_snapshots[sel_ver]
+
+        data_iter = AchFileDatasetsIter(
             version=version,
             file_list=file_list,
             pts=pts,
+            snapshot_states=snapshot_states,
+            device=device,
             file_batch_size=file_batch_size,
             reserve_ratio=reserve_ratio,
             player_names=['trainee'],
             num_epochs=num_epochs,
             enable_augmentation=enable_augmentation,
             augmented_first=augmented_first,
+            gamma=gamma,
+            gae_lambda=gae_lambda,
         )
+        # ACH iterator requires num_workers=0 to safely use GPU inside iterator
         loader = iter(DataLoader(
             dataset=data_iter,
             batch_size=batch_size,
             drop_last=False,
-            num_workers=num_workers,
+            num_workers=0,
             pin_memory=True,
-            worker_init_fn=worker_init_fn,
         ))
 
         pb = tqdm(total=save_every, desc='ACH', initial=steps % save_every)
 
-        def train_batch(obs, actions, masks, steps_to_done, kyoku_rewards, _player_ranks):
+        def train_batch(obs, actions, masks, A_offline, G, logits_old):
             nonlocal steps, pb
 
             obs = obs.to(dtype=torch.float32, device=device)
             actions = actions.to(dtype=torch.int64, device=device)
             masks = masks.to(dtype=torch.bool, device=device)
-            steps_to_done = steps_to_done.to(dtype=torch.int64, device=device)
-            kyoku_rewards = kyoku_rewards.to(dtype=torch.float64, device=device)
-
-            G = (gamma ** steps_to_done) * kyoku_rewards
-            G = G.to(torch.float32)
+            A_offline = A_offline.to(dtype=torch.float32, device=device)
+            G = G.to(dtype=torch.float32, device=device)
+            logits_old = logits_old.to(dtype=torch.float32, device=device)
 
             with torch.autocast(device.type, enabled=enable_amp):
                 phi = mortal(obs)
@@ -242,12 +236,9 @@ def train(is_first_run: bool = False):
                 logits_centered = center_and_clip(logits, masks, logit_threshold)
                 pi = softmax_from_logits(logits_centered, masks, eta)
 
-                # old policy
-                with torch.no_grad():
-                    phi_old = mortal_old(obs)
-                    logits_old = policy_old(phi_old, masks)
-                    logits_old_centered = center_and_clip(logits_old, masks, logit_threshold)
-                    pi_old = softmax_from_logits(logits_old_centered, masks, eta)
+                # old policy from provided logits
+                logits_old_centered = center_and_clip(logits_old, masks, logit_threshold)
+                pi_old = softmax_from_logits(logits_old_centered, masks, eta)
 
                 pi_a = pi[torch.arange(pi.shape[0]), actions]
                 pi_old_a = pi_old[torch.arange(pi_old.shape[0]), actions]
@@ -255,7 +246,7 @@ def train(is_first_run: bool = False):
 
                 # value and advantage
                 V = value(phi)
-                A = (G - V).detach()  # stop grad through A wrt value
+                A = A_offline.detach()  # advantage from snapshot (GAE)
 
                 # gating
                 logits_centered_a = logits_centered[torch.arange(logits_centered.shape[0]), actions]
@@ -368,13 +359,13 @@ def train(is_first_run: bool = False):
             obs = torch.cat([b[0] for b in remaining], 0)
             actions = torch.cat([b[1] for b in remaining], 0)
             masks = torch.cat([b[2] for b in remaining], 0)
-            steps_to_done = torch.cat([b[3] for b in remaining], 0)
-            kyoku_rewards = torch.cat([b[4] for b in remaining], 0)
-            player_ranks = torch.cat([b[5] for b in remaining], 0)
+            A_offline = torch.cat([b[3] for b in remaining], 0)
+            G = torch.cat([b[4] for b in remaining], 0)
+            logits_old = torch.cat([b[5] for b in remaining], 0)
             start = 0
             while start + batch_size <= obs.shape[0]:
                 sl = slice(start, start + batch_size)
-                train_batch(obs[sl], actions[sl], masks[sl], steps_to_done[sl], kyoku_rewards[sl], player_ranks[sl])
+                train_batch(obs[sl], actions[sl], masks[sl], A_offline[sl], G[sl], logits_old[sl])
                 start += batch_size
         pb.close()
 
@@ -385,6 +376,7 @@ def train(is_first_run: bool = False):
             deployed_snapshots[new_ver] = (
                 copy.deepcopy(mortal.state_dict()),
                 copy.deepcopy(policy.state_dict()),
+                copy.deepcopy(value.state_dict()),
             )
             # Optionally prune very old versions to limit memory
             if len(deployed_snapshots) > 8:
