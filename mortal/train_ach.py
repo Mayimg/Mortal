@@ -259,7 +259,8 @@ def train(is_first_run: bool = False):
                 value_loss = 0.5 * (V - G).pow(2).mean()
                 # entropy over valid actions
                 ent = -(pi.masked_fill(~masks, 0.0) * (pi.masked_fill(~masks, 1e-8)).log()).sum(-1).mean()
-                loss = policy_loss + value_coef * value_loss + entropy_coef * ent
+                # Follow ACH paper: add +beta * sum pi log pi  <=>  -beta * H(pi)
+                loss = policy_loss + value_coef * value_loss - entropy_coef * ent
 
             scaler.scale(loss / max(1, opt_step_every)).backward()
 

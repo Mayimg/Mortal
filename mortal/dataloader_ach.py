@@ -194,7 +194,8 @@ class AchFileDatasetsIter(IterableDataset):
                 for i in range(T - 1, -1, -1):
                     r = torch.tensor(R, dtype=torch.float64) if i == T - 1 else torch.tensor(0.0, dtype=torch.float64)
                     next_v = torch.tensor(0.0, dtype=torch.float64) if i == T - 1 else V[i + 1]
-                    ag = float(apply_gamma[i])
+                    # ag = float(apply_gamma[i])
+                    ag = float(1)
                     deltas[i] = r + self.gamma * next_v * ag - V[i]
 
                 A = torch.zeros(T, dtype=torch.float64)

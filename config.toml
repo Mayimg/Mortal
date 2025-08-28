@@ -1,8 +1,8 @@
 [control]
 version = 4
-state_file = 'models/test_mortal41.pth'
-best_state_file = 'models/test_best41.pth'
-tensorboard_dir = 'logs/tensorboard_test41'
+state_file = 'models/test_mortal45.pth'
+best_state_file = 'models/test_best45.pth'
+tensorboard_dir = 'logs/tensorboard_test45'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
@@ -20,7 +20,7 @@ algo = 'ach'
 
 [ach]
 eta = 1              # Hedge 係数
-logit_threshold = 3.0  # ロジットしきい値（±値でクリップ）
+logit_threshold = 6.0  # ロジットしきい値（±値でクリップ）
 ratio_clip = 0.5       # PPO の比率クリップ ε
 gae_lambda = 0.95      # 便宜上保持（実質 MC）
 entropy_coef = 2e-2    # エントロピー係数 β
@@ -51,7 +51,7 @@ port = 5000  # サーバーのポート
 [online.server]
 buffer_dir = 'online_training_data/buffer'  
 drain_dir = 'online_training_data/drain'  
-capacity = 800
+capacity = 400
 force_sequential = false  
 sample_reuse_rate = 0  
 sample_reuse_threshold = 0  
@@ -59,10 +59,10 @@ sample_reuse_threshold = 0
 [dataset]
 globs = ['data/training/**/*.json.gz']
 enable_augmentation = true
-file_batch_size = 30
+file_batch_size = 50
 num_workers = 4
 file_index = 'cache/main_file_index.pth'
-reserve_ratio = 0.0
+reserve_ratio = 0.3
 num_epochs = 1
 augmented_first = false
 player_names_files = []
@@ -100,7 +100,7 @@ mortal = true
 
 [optim]
 # lr = 0.00001
-lr = 0.00005
+lr = 0.00001
 weight_decay = 0.00001
 lr_scheduler = 'constant'
 eps = 1e-8
