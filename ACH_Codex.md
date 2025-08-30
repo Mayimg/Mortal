@@ -173,7 +173,7 @@ gamma = 0.995
 - if A < 0 かつ r ≥ 1−ε かつ y_centered > −l_th なら c = 1、else c = 0。
 
 6.4 損失
-- L_policy = − c · η · (π(a|s; θ) / πold(a|s)) · A
+- L_policy = − c · η · (y(a|s; θ) / πold(a|s)) · A
 - L_value = α/2 · (V(s; ω) − G)^2
 - L_ent = β · Σ_a π(a|s; θ) log π(a|s; θ)
 - L_ACH = Σ(L_policy + L_value + L_ent)

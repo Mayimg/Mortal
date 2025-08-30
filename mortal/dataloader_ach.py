@@ -201,7 +201,8 @@ class AchFileDatasetsIter(IterableDataset):
                 A = torch.zeros(T, dtype=torch.float64)
                 gae = torch.tensor(0.0, dtype=torch.float64)
                 for i in range(T - 1, -1, -1):
-                    ag = float(apply_gamma[i])
+                    # ag = float(apply_gamma[i])
+                    ag = float(1)
                     gae = deltas[i] + self.gamma * self.gae_lambda * ag * gae
                     A[i] = gae
 

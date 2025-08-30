@@ -255,7 +255,8 @@ def train(is_first_run: bool = False):
                 c = (gate_pos | gate_neg).to(logits.dtype)
 
                 # losses
-                policy_loss = -(c * eta * ratio * A).mean()
+                pi_old_a_clipped = pi_old_a.clamp_min(1e-3)
+                policy_loss = -(c * eta * (logits_centered_a / pi_old_a_clipped) * A).mean()
                 value_loss = 0.5 * (V - G).pow(2).mean()
                 # entropy over valid actions
                 ent = -(pi.masked_fill(~masks, 0.0) * (pi.masked_fill(~masks, 1e-8)).log()).sum(-1).mean()
