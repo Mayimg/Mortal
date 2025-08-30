@@ -22,7 +22,8 @@ class AchFileDatasetsIter(IterableDataset):
     - π_old reconstruction (centering/clipping/eta/softmax) is done on the
       training side; we return raw masked logits from the snapshot policy.
     - Advantage A is computed via GAE(λ) with λ from config (default 0.95),
-      using snapshot ValueHead predictions.
+      using snapshot ValueHead predictions, and is applied per-kyoku by
+      resetting at kyoku boundaries given by `dones`.
     - Returns are computed from final hanchan rank and `pts`, discounted by γ.
     """
 
@@ -187,23 +188,28 @@ class AchFileDatasetsIter(IterableDataset):
                 logits_old = torch.cat(logits_list, dim=0)  # (T, A) float32 CPU
                 V = torch.cat(V_list, dim=0).to(dtype=torch.float64)  # (T,) float64 CPU for precision
 
-                # Compute GAE(λ) with terminal reward R at last step
-                # δ_t = r_t + γ * V_{t+1} * apply_gamma[t] - V_t
-                # r_t = 0 except at final step where r_{T-1} = R
+                # Compute GAE(λ) per-kyoku using `dones` as kyoku boundaries.
+                # Definition:
+                #   δ_t = r_t + γ V_{t+1} - V_t,
+                #   where r_t = 0 for all t except t = T-1 with r_{T-1} = R.
+                # For non-final kyoku ends (dones[t] is True and t < T-1), we
+                # bootstrap with V_{t+1} (the first state of the next kyoku),
+                # but reset the GAE accumulator at the boundary so advantages
+                # are computed within each kyoku only.
                 deltas = torch.zeros(T, dtype=torch.float64)
                 for i in range(T - 1, -1, -1):
                     r = torch.tensor(R, dtype=torch.float64) if i == T - 1 else torch.tensor(0.0, dtype=torch.float64)
                     next_v = torch.tensor(0.0, dtype=torch.float64) if i == T - 1 else V[i + 1]
-                    # ag = float(apply_gamma[i])
-                    ag = float(1)
-                    deltas[i] = r + self.gamma * next_v * ag - V[i]
+                    deltas[i] = r + self.gamma * next_v - V[i]
 
                 A = torch.zeros(T, dtype=torch.float64)
                 gae = torch.tensor(0.0, dtype=torch.float64)
+                # Reset before accumulation at kyoku boundaries so that the
+                # boundary step's advantage does not include next-kyoku terms.
                 for i in range(T - 1, -1, -1):
-                    # ag = float(apply_gamma[i])
-                    ag = float(1)
-                    gae = deltas[i] + self.gamma * self.gae_lambda * ag * gae
+                    if dones[i]:
+                        gae = torch.tensor(0.0, dtype=torch.float64)
+                    gae = deltas[i] + self.gamma * self.gae_lambda * gae
                     A[i] = gae
 
                 # Cast to float32 for training, keep on CPU
