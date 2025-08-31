@@ -1,8 +1,8 @@
 [control]
 version = 4
-state_file = 'models/test_mortal48.pth'
-best_state_file = 'models/test_best48.pth'
-tensorboard_dir = 'logs/tensorboard_test48'
+state_file = 'models/test_mortal50.pth'
+best_state_file = 'models/test_best50.pth'
+tensorboard_dir = 'logs/tensorboard_test50'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
@@ -22,6 +22,7 @@ algo = 'ach'
 eta = 1              # Hedge 係数
 logit_threshold = 6.0  # ロジットしきい値（±値でクリップ）
 ratio_clip = 0.5       # PPO の比率クリップ ε
+adv_clip = 5.0         # アドバンテージのミニバッチ正規化後クリップ幅
 gae_lambda = 0.95      # 便宜上保持（実質 MC）
 entropy_coef = 2e-2    # エントロピー係数 β
 value_coef = 0.5       # 価値損失の係数 α
@@ -33,7 +34,7 @@ enable_compile = false
 state_file = 'models/test_best15.pth'  # ベースライン（対戦相手）モデル
 
 [train_play.default]
-games = 400
+games = 100
 log_dir = 'logs/train_play'
 boltzmann_epsilon = 1.0
 boltzmann_temp = 0.05
@@ -51,7 +52,7 @@ port = 5000  # サーバーのポート
 [online.server]
 buffer_dir = 'online_training_data/buffer'  
 drain_dir = 'online_training_data/drain'  
-capacity = 400
+capacity = 100
 force_sequential = false  
 sample_reuse_rate = 0  
 sample_reuse_threshold = 0  

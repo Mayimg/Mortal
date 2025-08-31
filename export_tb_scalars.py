@@ -18,6 +18,8 @@ TARGET_TAGS = [
     "ach/ratio_mean",
     "ach/value_loss",
     "ach/ratio_clip_rate",
+    "ach/adv_norm_mean",
+    "ach/adv_clip_frac"
 ]
 
 def load_scalars(logdir, tags):

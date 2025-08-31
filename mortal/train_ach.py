@@ -38,6 +38,8 @@ def train(is_first_run: bool = False):
     eta = float(ach_cfg.get('eta', 1.0))
     logit_threshold = float(ach_cfg.get('logit_threshold', 6.0))
     ratio_clip = float(ach_cfg.get('ratio_clip', 0.5))
+    # Advantage normalization/clipping width (per minibatch)
+    adv_clip = float(ach_cfg.get('adv_clip', 5.0))
     gae_lambda = float(ach_cfg.get('gae_lambda', 0.95))  # kept for completeness
     entropy_coef = float(ach_cfg.get('entropy_coef', 1e-2))
     value_coef = float(ach_cfg.get('value_coef', 0.5))
@@ -157,7 +159,12 @@ def train(is_first_run: bool = False):
         'entropy': 0.0,
         'ratio_mean': 0.0,
         'ratio_clip_rate': 0.0,
+        # A (advantage) monitoring (normalized, pre-clip)
+        'adv_norm_mean': 0.0,
+        'adv_norm_std': 0.0,
+        'adv_clip_frac': 0.0,
     }
+    last_adv_norm = None  # for histogram
 
     def softmax_from_logits(logits: torch.Tensor, mask: torch.Tensor, eta_: float) -> torch.Tensor:
         logits = logits.masked_fill(~mask, -torch.inf)
@@ -221,6 +228,7 @@ def train(is_first_run: bool = False):
 
         def train_batch(obs, actions, masks, A_offline, G, logits_old):
             nonlocal steps, pb
+            nonlocal last_adv_norm
 
             obs = obs.to(dtype=torch.float32, device=device)
             actions = actions.to(dtype=torch.int64, device=device)
@@ -246,7 +254,13 @@ def train(is_first_run: bool = False):
 
                 # value and advantage
                 V = value(phi)
-                A = A_offline.detach()  # advantage from snapshot (GAE)
+                # Advantage from snapshot (GAE/MC): normalize per minibatch and clip
+                A_raw = A_offline.detach()
+                A_mean = A_raw.mean()
+                A_std = A_raw.std(unbiased=False) + 1e-8
+                A_norm = (A_raw - A_mean) / A_std
+                clip_mask = (A_norm.abs() > adv_clip)
+                A = A_norm.clamp(-adv_clip, adv_clip)
 
                 # gating
                 logits_centered_a = logits_centered[torch.arange(logits_centered.shape[0]), actions]
@@ -271,6 +285,12 @@ def train(is_first_run: bool = False):
                 stats['entropy'] += ent.detach()
                 stats['ratio_mean'] += ratio.mean().detach()
                 stats['ratio_clip_rate'] += (1.0 - (gate_pos | gate_neg).float().mean()).detach()
+                # Monitor normalized A (pre-clip)
+                stats['adv_norm_mean'] += A_norm.mean().detach()
+                stats['adv_norm_std'] += A_norm.std(unbiased=False).detach()
+                stats['adv_clip_frac'] += clip_mask.float().mean().detach()
+                # Keep the last normalized A for histogram logging
+                last_adv_norm = A_norm.detach().to('cpu')
 
             steps += 1
             if steps % opt_step_every == 0:
@@ -292,6 +312,12 @@ def train(is_first_run: bool = False):
                 writer.add_scalar('ach/entropy', stats['entropy'] / save_every, steps)
                 writer.add_scalar('ach/ratio_mean', stats['ratio_mean'] / save_every, steps)
                 writer.add_scalar('ach/ratio_clip_rate', stats['ratio_clip_rate'] / save_every, steps)
+                # A (advantage) distribution monitoring (normalized, pre-clip)
+                writer.add_scalar('ach/adv_norm_mean', stats['adv_norm_mean'] / save_every, steps)
+                writer.add_scalar('ach/adv_norm_std', stats['adv_norm_std'] / save_every, steps)
+                writer.add_scalar('ach/adv_clip_frac', stats['adv_clip_frac'] / save_every, steps)
+                if last_adv_norm is not None:
+                    writer.add_histogram('ach/adv_norm', last_adv_norm, steps)
                 writer.flush()
                 for k in stats:
                     stats[k] = 0.0
