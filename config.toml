@@ -1,8 +1,8 @@
 [control]
 version = 4
-state_file = 'models/test_mortal50.pth'
-best_state_file = 'models/test_best50.pth'
-tensorboard_dir = 'logs/tensorboard_test50'
+state_file = 'models/test_mortal52.pth'
+best_state_file = 'models/test_best52.pth'
+tensorboard_dir = 'logs/tensorboard_test52'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
@@ -34,7 +34,7 @@ enable_compile = false
 state_file = 'models/test_best15.pth'  # ベースライン（対戦相手）モデル
 
 [train_play.default]
-games = 100
+games = 400
 log_dir = 'logs/train_play'
 boltzmann_epsilon = 1.0
 boltzmann_temp = 0.05
@@ -52,7 +52,7 @@ port = 5000  # サーバーのポート
 [online.server]
 buffer_dir = 'online_training_data/buffer'  
 drain_dir = 'online_training_data/drain'  
-capacity = 100
+capacity = 400
 force_sequential = false  
 sample_reuse_rate = 0  
 sample_reuse_threshold = 0  

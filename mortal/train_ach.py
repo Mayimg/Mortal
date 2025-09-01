@@ -262,11 +262,15 @@ def train(is_first_run: bool = False):
                 clip_mask = (A_norm.abs() > adv_clip)
                 A = A_norm.clamp(-adv_clip, adv_clip)
 
-                # gating
+                # gating: ratio is symmetric; logit is directional by sign(A)
                 logits_centered_a = logits_centered[torch.arange(logits_centered.shape[0]), actions]
-                gate_pos = (A >= 0) & (ratio <= (1.0 + ratio_clip)) & (logits_centered_a < logit_threshold)
-                gate_neg = (A < 0) & (ratio >= (1.0 - ratio_clip)) & (logits_centered_a > -logit_threshold)
-                c = (gate_pos | gate_neg).to(logits.dtype)
+                ratio_ok = (ratio >= (1.0 - ratio_clip)) & (ratio <= (1.0 + ratio_clip))
+                # If A>=0, block only when logits are too high; if A<0, block only when too low
+                logit_ok = torch.where(A >= 0,
+                                       logits_centered_a < logit_threshold,
+                                       logits_centered_a > -logit_threshold)
+                gate = ratio_ok & logit_ok
+                c = gate.to(logits.dtype)
 
                 # losses
                 pi_old_a_clipped = pi_old_a.clamp_min(1e-3)
@@ -284,7 +288,7 @@ def train(is_first_run: bool = False):
                 stats['value_loss'] += value_loss.detach()
                 stats['entropy'] += ent.detach()
                 stats['ratio_mean'] += ratio.mean().detach()
-                stats['ratio_clip_rate'] += (1.0 - (gate_pos | gate_neg).float().mean()).detach()
+                stats['ratio_clip_rate'] += (1.0 - gate.float().mean()).detach()
                 # Monitor normalized A (pre-clip)
                 stats['adv_norm_mean'] += A_norm.mean().detach()
                 stats['adv_norm_std'] += A_norm.std(unbiased=False).detach()
