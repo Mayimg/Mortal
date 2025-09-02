@@ -386,7 +386,8 @@ def train(is_first_run: bool = False):
             train_batch(*batch)
 
         # process leftover
-        if remaining:
+        # if remaining:
+        if False:
             # concat and slice by batch_size
             obs = torch.cat([b[0] for b in remaining], 0)
             actions = torch.cat([b[1] for b in remaining], 0)
