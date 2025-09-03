@@ -159,13 +159,29 @@ def train(is_first_run: bool = False):
         'value_loss': 0.0,
         'entropy': 0.0,
         'ratio_mean': 0.0,
+        'ratio_std': 0.0,
+        'ratio_p95': 0.0,
         'ratio_clip_rate': 0.0,
+        'gate_accept_rate': 0.0,
+        'ratio_violation_rate': 0.0,
+        'logit_violation_rate': 0.0,
         # A (advantage) monitoring (normalized, pre-clip)
         'adv_norm_mean': 0.0,
         'adv_norm_std': 0.0,
         'adv_clip_frac': 0.0,
+        # KL divergence between old and new policy (per-state, averaged)
+        'kl_old_new': 0.0,
+        # Valid action count monitoring
+        'valid_count_mean': 0.0,
     }
+    # gradient norm running sums are measured only when we step the optimizer
+    grad_norm_policy_sum = 0.0
+    grad_norm_value_sum = 0.0
+    grad_norm_mortal_sum = 0.0
+    grad_stats_count = 0
     last_adv_norm = None  # for histogram
+    last_ratio = None      # for histogram (taken-action ratio)
+    last_logits_centered_a = None  # for histogram (taken-action centered logit)
 
     def softmax_from_logits(logits: torch.Tensor, mask: torch.Tensor, eta_: float) -> torch.Tensor:
         logits = logits.masked_fill(~mask, -torch.inf)
@@ -274,6 +290,11 @@ def train(is_first_run: bool = False):
                 gate = ratio_ok & logit_ok
                 c = gate.to(logits.dtype)
 
+                # Diagnostics: KL(old||new) over valid actions per-row, then mean
+                log_pi_old = (pi_old.masked_fill(~masks, 1e-8)).log()
+                log_pi = (pi.masked_fill(~masks, 1e-8)).log()
+                kl_old_new = (pi_old * (log_pi_old - log_pi)).masked_fill(~masks, 0.0).sum(-1).mean()
+
                 # losses
                 pi_old_a_clipped = pi_old_a.clamp_min(1e-3)
                 policy_loss = -(c * eta * (logits_centered_a / pi_old_a_clipped) * A).mean()
@@ -290,13 +311,30 @@ def train(is_first_run: bool = False):
                 stats['value_loss'] += value_loss.detach()
                 stats['entropy'] += ent.detach()
                 stats['ratio_mean'] += ratio.mean().detach()
+                # ratio dispersion and tails
+                stats['ratio_std'] += ratio.std(unbiased=False).detach()
+                try:
+                    stats['ratio_p95'] += torch.quantile(ratio, 0.95).detach()
+                except Exception:
+                    # Fallback if quantile is unavailable
+                    stats['ratio_p95'] += ratio.max().detach()
                 stats['ratio_clip_rate'] += (1.0 - gate.float().mean()).detach()
+                stats['gate_accept_rate'] += gate.float().mean().detach()
+                stats['ratio_violation_rate'] += (~ratio_ok).float().mean().detach()
+                stats['logit_violation_rate'] += (~logit_ok).float().mean().detach()
                 # Monitor normalized A (pre-clip)
                 stats['adv_norm_mean'] += A_norm.mean().detach()
                 stats['adv_norm_std'] += A_norm.std(unbiased=False).detach()
                 stats['adv_clip_frac'] += clip_mask.float().mean().detach()
+                # KL(old||new)
+                stats['kl_old_new'] += kl_old_new.detach()
+                # Valid action count
+                stats['valid_count_mean'] += masks.sum(-1).float().mean().detach()
                 # Keep the last normalized A for histogram logging
                 last_adv_norm = A_norm.detach().to('cpu')
+                # Keep ratio/logits for histogram logging
+                last_ratio = ratio.detach().to('cpu')
+                last_logits_centered_a = logits_centered_a.detach().to('cpu')
 
             steps += 1
             if steps % opt_step_every == 0:
@@ -304,6 +342,22 @@ def train(is_first_run: bool = False):
                     scaler.unscale_(optimizer)
                     params = chain.from_iterable(g['params'] for g in optimizer.param_groups)
                     clip_grad_norm_(params, max_grad_norm)
+                # Measure gradient norms (unscaled, before step)
+                with torch.no_grad():
+                    def module_grad_norm(mod):
+                        sq = 0.0
+                        for p in mod.parameters():
+                            if p.grad is not None:
+                                sq += (p.grad.detach().float().pow(2).sum()).item()
+                        return (sq ** 0.5)
+                    gn_policy = module_grad_norm(policy)
+                    gn_value = module_grad_norm(value)
+                    gn_mortal = module_grad_norm(mortal)
+                    nonlocal grad_norm_policy_sum, grad_norm_value_sum, grad_norm_mortal_sum, grad_stats_count
+                    grad_norm_policy_sum += gn_policy
+                    grad_norm_value_sum += gn_value
+                    grad_norm_mortal_sum += gn_mortal
+                    grad_stats_count += 1
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
@@ -317,16 +371,37 @@ def train(is_first_run: bool = False):
                 writer.add_scalar('ach/value_loss', stats['value_loss'] / save_every, steps)
                 writer.add_scalar('ach/entropy', stats['entropy'] / save_every, steps)
                 writer.add_scalar('ach/ratio_mean', stats['ratio_mean'] / save_every, steps)
+                writer.add_scalar('ach/ratio_std', stats['ratio_std'] / save_every, steps)
+                writer.add_scalar('ach/ratio_p95', stats['ratio_p95'] / save_every, steps)
                 writer.add_scalar('ach/ratio_clip_rate', stats['ratio_clip_rate'] / save_every, steps)
+                writer.add_scalar('ach/gate_accept_rate', stats['gate_accept_rate'] / save_every, steps)
+                writer.add_scalar('ach/ratio_violation_rate', stats['ratio_violation_rate'] / save_every, steps)
+                writer.add_scalar('ach/logit_violation_rate', stats['logit_violation_rate'] / save_every, steps)
                 # A (advantage) distribution monitoring (normalized, pre-clip)
                 writer.add_scalar('ach/adv_norm_mean', stats['adv_norm_mean'] / save_every, steps)
                 writer.add_scalar('ach/adv_norm_std', stats['adv_norm_std'] / save_every, steps)
                 writer.add_scalar('ach/adv_clip_frac', stats['adv_clip_frac'] / save_every, steps)
+                # KL and valid action count
+                writer.add_scalar('ach/kl_old_new', stats['kl_old_new'] / save_every, steps)
+                writer.add_scalar('ach/valid_count_mean', stats['valid_count_mean'] / save_every, steps)
                 if last_adv_norm is not None:
                     writer.add_histogram('ach/adv_norm', last_adv_norm, steps)
+                if last_ratio is not None:
+                    writer.add_histogram('ach/ratio', last_ratio, steps)
+                if last_logits_centered_a is not None:
+                    writer.add_histogram('ach/logits_centered_a', last_logits_centered_a, steps)
+                # Gradient norms (average over steps with optimizer updates during the window)
+                if grad_stats_count > 0:
+                    writer.add_scalar('ach/grad_norm_policy', grad_norm_policy_sum / grad_stats_count, steps)
+                    writer.add_scalar('ach/grad_norm_value', grad_norm_value_sum / grad_stats_count, steps)
+                    writer.add_scalar('ach/grad_norm_mortal', grad_norm_mortal_sum / grad_stats_count, steps)
                 writer.flush()
                 for k in stats:
                     stats[k] = 0.0
+                grad_norm_policy_sum = 0.0
+                grad_norm_value_sum = 0.0
+                grad_norm_mortal_sum = 0.0
+                grad_stats_count = 0
 
                 # Save state
                 state = {

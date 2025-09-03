@@ -16,10 +16,21 @@ TARGET_TAGS = [
     "ach/entropy",
     "ach/policy_loss",
     "ach/ratio_mean",
+    "ach/ratio_std",
+    "ach/ratio_p95",
     "ach/value_loss",
     "ach/ratio_clip_rate",
+    "ach/gate_accept_rate",
+    "ach/ratio_violation_rate",
+    "ach/logit_violation_rate",
     "ach/adv_norm_mean",
-    "ach/adv_clip_frac"
+    "ach/adv_norm_std",
+    "ach/adv_clip_frac",
+    "ach/kl_old_new",
+    "ach/valid_count_mean",
+    "ach/grad_norm_policy",
+    "ach/grad_norm_value",
+    "ach/grad_norm_mortal",
 ]
 
 def load_scalars(logdir, tags):
