@@ -37,6 +37,7 @@ class AchFileDatasetsIter(IterableDataset):
         device: torch.device,
         file_batch_size: int = 20,
         reserve_ratio: float = 0.0,
+        sample_ratio: float = 1.0,
         player_names: Optional[List[str]] = None,
         excludes: Optional[List[str]] = None,
         num_epochs: int = 1,
@@ -53,6 +54,8 @@ class AchFileDatasetsIter(IterableDataset):
         self.device = device
         self.file_batch_size = file_batch_size
         self.reserve_ratio = reserve_ratio
+        # Clamp to [0, 1] for safety
+        self.sample_ratio = max(0.0, min(1.0, float(sample_ratio)))
         self.player_names = player_names
         self.excludes = excludes
         self.num_epochs = num_epochs
@@ -216,16 +219,32 @@ class AchFileDatasetsIter(IterableDataset):
                 A = A.to(dtype=torch.float32)
                 G = torch.as_tensor(G, dtype=torch.float32)
 
-                # Append entries per step
-                for i in range(T):
-                    self.buffer.append([
-                        torch.from_numpy(obs[i]).to(dtype=torch.float32),            # obs (C, L)
-                        torch.as_tensor(actions[i], dtype=torch.int64),              # action
-                        torch.from_numpy(masks[i]).to(dtype=torch.bool),             # mask (A)
-                        A[i].clone(),                                               # advantage
-                        G[i].clone(),                                               # return
-                        logits_old[i].clone(),                                      # policy logits (A)
-                    ])
+                # Append entries per step with sampling
+                if self.sample_ratio >= 1.0:
+                    for i in range(T):
+                        self.buffer.append([
+                            torch.from_numpy(obs[i]).to(dtype=torch.float32),            # obs (C, L)
+                            torch.as_tensor(actions[i], dtype=torch.int64),              # action
+                            torch.from_numpy(masks[i]).to(dtype=torch.bool),             # mask (A)
+                            A[i].clone(),                                               # advantage
+                            G[i].clone(),                                               # return
+                            logits_old[i].clone(),                                      # policy logits (A)
+                        ])
+                elif self.sample_ratio > 0.0:
+                    rand = random.random
+                    for i in range(T):
+                        if rand() < self.sample_ratio:
+                            self.buffer.append([
+                                torch.from_numpy(obs[i]).to(dtype=torch.float32),        # obs (C, L)
+                                torch.as_tensor(actions[i], dtype=torch.int64),          # action
+                                torch.from_numpy(masks[i]).to(dtype=torch.bool),         # mask (A)
+                                A[i].clone(),                                           # advantage
+                                G[i].clone(),                                           # return
+                                logits_old[i].clone(),                                  # policy logits (A)
+                            ])
+                else:
+                    # sample_ratio == 0.0 -> drop all
+                    pass
 
 
 def worker_init_fn_ach(*args, **kwargs):

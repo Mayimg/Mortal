@@ -39,6 +39,7 @@ globs = ['/path/to/dataset/**/*.json.gz']
 file_index = '/path/to/file_index.pth'
 file_batch_size = 15
 reserve_ratio = 0.0
+sample_ratio = 1.0  # 0.0-1.0 fraction of positions to sample
 num_workers = 1
 player_names_files = []
 num_epochs = 1
