@@ -1,8 +1,8 @@
 [control]
 version = 4
-state_file = 'models/test_mortal58.pth'
-best_state_file = 'models/test_best58.pth'
-tensorboard_dir = 'logs/tensorboard_test58'
+state_file = 'models/test_mortal60.pth'
+best_state_file = 'models/test_best60.pth'
+tensorboard_dir = 'logs/tensorboard_test60'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
@@ -34,7 +34,7 @@ enable_compile = false
 state_file = 'models/test_best15.pth'  # ベースライン（対戦相手）モデル
 
 [train_play.default]
-games = 100
+games = 50
 log_dir = 'logs/train_play'
 boltzmann_epsilon = 1.0
 boltzmann_temp = 0.05
@@ -52,7 +52,7 @@ port = 5000  # サーバーのポート
 [online.server]
 buffer_dir = 'online_training_data/buffer'  
 drain_dir = 'online_training_data/drain'  
-capacity = 100
+capacity = 50
 force_sequential = false  
 sample_reuse_rate = 0  
 sample_reuse_threshold = 0  
@@ -63,8 +63,8 @@ enable_augmentation = true
 file_batch_size = 50
 num_workers = 4
 file_index = 'cache/main_file_index.pth'
-reserve_ratio = 0.3
-sample_ratio = 0.2  # 0.0-1.0: 局面のサンプリング割合（ACHローダ用）
+reserve_ratio = 0.5
+sample_ratio = 1.0  # 0.0-1.0: 局面のサンプリング割合（ACHローダ用）
 num_epochs = 1
 augmented_first = false
 player_names_files = []

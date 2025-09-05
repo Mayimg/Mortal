@@ -7,8 +7,9 @@ class RewardCalculator:
         self.grp = grp.to(self.device).eval()
         self.uniform_init = uniform_init
 
-        pts = pts or [3, 1, -1, -3]
-        self.pts = torch.tensor(pts, dtype=torch.float64, device=self.device)
+        if pts is None:
+            pts = [3, 1, -1, -3]
+        self.pts = torch.as_tensor(pts, dtype=torch.float64, device=self.device)
 
     def calc_grp(self, grp_feature):
         seq = list(map(
@@ -41,3 +42,14 @@ class RewardCalculator:
         seq = np.concatenate((grp_feature[:, 3 + player_id] * 1e4, [final_scores[player_id]]))
         delta_points = seq[1:] - seq[:-1]
         return delta_points
+
+    # Expected points at each kyoku end (absolute, not delta).
+    # Uses GRP-predicted final rank probabilities after each kyoku; for the
+    # final kyoku, uses the actual final ranking (one-hot) as the last entry.
+    # Returns an array of length num_kyoku: exp_pts[kyoku_end], i.e. exp_pts[1:].
+    def calc_exp_pt(self, player_id, grp_feature, rank_by_player):
+        rank_prob = self.calc_rank_prob(player_id, grp_feature, rank_by_player)
+        exp_pts = rank_prob @ self.pts  # shape: (num_kyoku + 1)
+        # exp reward for each kyoku end; the last element corresponds to the
+        # final raw ranking as required
+        return exp_pts[1:].cpu().numpy()

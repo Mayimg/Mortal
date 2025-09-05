@@ -6,9 +6,10 @@ import torch
 from torch.utils.data import IterableDataset
 
 from .config import config
-from .model import Brain
+from .model import Brain, GRP
 from .policy_ach import PolicyNet, ValueHead
 from .libriichi.dataset import GameplayLoader
+from .reward_calculator import RewardCalculator
 
 
 class AchFileDatasetsIter(IterableDataset):
@@ -24,7 +25,9 @@ class AchFileDatasetsIter(IterableDataset):
     - Advantage A is computed via GAE(λ) with λ from config (default 0.95),
       using snapshot ValueHead predictions, and is applied per-kyoku by
       resetting at kyoku boundaries given by `dones`.
-    - Returns are computed from final hanchan rank and `pts`, discounted by γ.
+    - Returns G are computed per-kyoku using GRP-predicted final-rank expected
+      points at each kyoku end (last kyoku uses raw final rank). For a step in
+      kyoku k, G_t = γ^{steps_to_kyoku_end(t)} * R_kyoku[k].
     """
 
     def __init__(
@@ -81,6 +84,12 @@ class AchFileDatasetsIter(IterableDataset):
         mortal_old.load_state_dict(m_state)
         policy_old.load_state_dict(p_state)
         value_old.load_state_dict(v_state)
+
+        # Build GRP + RewardCalculator on CPU for expected-pts per-kyoku.
+        grp = GRP(**config['grp']['network'])
+        grp_state = torch.load(config['grp']['state_file'], weights_only=True, map_location=torch.device('cpu'))
+        grp.load_state_dict(grp_state['model'])
+        self.reward_calc = RewardCalculator(grp, self.pts)
 
         # Optional compile per config; safe since we only run forward.
         if config['control'].get('enable_compile', False):
@@ -141,6 +150,9 @@ class AchFileDatasetsIter(IterableDataset):
                 masks = np.asarray(game.take_masks(), dtype=np.bool_)      # (T, A)
                 dones = np.asarray(game.take_dones(), dtype=np.bool_)
                 apply_gamma = np.asarray(game.take_apply_gamma(), dtype=np.int64)  # (T,)
+                # at_kyoku may be returned as a list-like or bytes; keep as-is
+                # to avoid dtype casting issues, and index per step.
+                at_kyoku = game.take_at_kyoku()       # (T,)
 
                 grp = game.take_grp()
                 player_id = int(game.take_player_id())
@@ -151,24 +163,26 @@ class AchFileDatasetsIter(IterableDataset):
                 if T == 0:
                     continue
 
-                # Compute final reward R from final scores and pts
-                final_scores = np.asarray(grp.take_final_scores(), dtype=np.int64)  # (4,)
-                # rank_by_player_final: rank 0..3 for each player id
-                order = np.argsort(-final_scores, kind='stable')
-                rank_by_player_final = np.empty(4, dtype=np.int64)
-                for r, pid in enumerate(order):
-                    rank_by_player_final[pid] = r
-                final_rank = int(rank_by_player_final[player_id])
-                R = float(self.pts[final_rank])
+                # Compute per-kyoku expected reward R_kyoku using GRP.
+                grp_feature = grp.take_feature()
+                rank_by_player = grp.take_rank_by_player()
+                # exp_pts per kyoku end; last element uses raw final ranking
+                kyoku_rewards = self.reward_calc.calc_exp_pt(player_id, grp_feature, rank_by_player)  # (num_kyoku,)
+                # Safety: ensure we have reward for each at_kyoku index present
+                assert len(kyoku_rewards) >= int(at_kyoku[-1]) + 1
 
-                # Steps-to-done from the end of the hanchan (ignore per-kyoku dones)
-                # Accumulate discounting steps using apply_gamma only.
-                steps_to_done = np.zeros(T, dtype=np.int64)
-                for i in range(T - 2, -1, -1):
-                    steps_to_done[i] = steps_to_done[i + 1] + 1
+                # Steps-to-kyoku-end: count discounts within each kyoku only.
+                steps_to_kyoku_end = np.zeros(T, dtype=np.int64)
+                for i in range(T - 1, -1, -1):
+                    if i < T - 1 and not dones[i]:
+                        steps_to_kyoku_end[i] = steps_to_kyoku_end[i + 1] + int(apply_gamma[i])
+                    else:
+                        steps_to_kyoku_end[i] = 0
 
-                # Compute discounted returns G_t = gamma^{steps_to_done} * R
-                G = (self.gamma ** steps_to_done.astype(np.float64)) * R
+                # Compute discounted returns per step using the kyoku's expected reward
+                # Build per-step R by indexing kyoku_rewards with at_kyoku per step
+                R_per_step = np.fromiter((float(kyoku_rewards[int(k)]) for k in at_kyoku), dtype=np.float64, count=T)
+                G = (self.gamma ** steps_to_kyoku_end.astype(np.float64)) * R_per_step
 
                 # Snapshot inference for V_old and policy logits on GPU, chunked
                 # Convert obs/masks to tensors in chunks to limit memory usage
@@ -194,16 +208,19 @@ class AchFileDatasetsIter(IterableDataset):
                 # Compute GAE(λ) per-kyoku using `dones` as kyoku boundaries.
                 # Definition:
                 #   δ_t = r_t + γ V_{t+1} - V_t,
-                #   where r_t = 0 for all t except t = T-1 with r_{T-1} = R.
+                #   where r_t = R_kyoku at kyoku-end steps (dones[t] == True),
+                #   and 0 otherwise; the last kyoku uses raw final ranking.
                 # For non-final kyoku ends (dones[t] is True and t < T-1), we
                 # bootstrap with V_{t+1} (the first state of the next kyoku),
                 # but reset the GAE accumulator at the boundary so advantages
                 # are computed within each kyoku only.
                 deltas = torch.zeros(T, dtype=torch.float64)
                 for i in range(T - 1, -1, -1):
-                    r = torch.tensor(R, dtype=torch.float64) if i == T - 1 else torch.tensor(0.0, dtype=torch.float64)
+                    # Terminal reward for each kyoku: use R_kyoku at kyoku end, else 0.
+                    # at_kyoku may be bytes; convert to int explicitly
+                    r_i = torch.tensor(float(kyoku_rewards[int(at_kyoku[i])]), dtype=torch.float64) if dones[i] else torch.tensor(0.0, dtype=torch.float64)
                     next_v = torch.tensor(0.0, dtype=torch.float64) if i == T - 1 else V[i + 1]
-                    deltas[i] = r + self.gamma * next_v - V[i]
+                    deltas[i] = r_i + self.gamma * next_v - V[i]
 
                 A = torch.zeros(T, dtype=torch.float64)
                 gae = torch.tensor(0.0, dtype=torch.float64)
