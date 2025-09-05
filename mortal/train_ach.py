@@ -38,8 +38,6 @@ def train(is_first_run: bool = False):
     eta = float(ach_cfg.get('eta', 1.0))
     logit_threshold = float(ach_cfg.get('logit_threshold', 6.0))
     ratio_clip = float(ach_cfg.get('ratio_clip', 0.5))
-    # Advantage normalization/clipping width (per minibatch)
-    adv_clip = float(ach_cfg.get('adv_clip', 5.0))
     gae_lambda = float(ach_cfg.get('gae_lambda', 0.95))  # kept for completeness
     entropy_coef = float(ach_cfg.get('entropy_coef', 1e-2))
     value_coef = float(ach_cfg.get('value_coef', 0.5))
@@ -165,10 +163,6 @@ def train(is_first_run: bool = False):
         'gate_accept_rate': 0.0,
         'ratio_violation_rate': 0.0,
         'logit_violation_rate': 0.0,
-        # A (advantage) monitoring (normalized, pre-clip)
-        'adv_norm_mean': 0.0,
-        'adv_norm_std': 0.0,
-        'adv_clip_frac': 0.0,
         # KL divergence between old and new policy (per-state, averaged)
         'kl_old_new': 0.0,
         # Valid action count monitoring
@@ -179,7 +173,7 @@ def train(is_first_run: bool = False):
     grad_norm_value_sum = 0.0
     grad_norm_mortal_sum = 0.0
     grad_stats_count = 0
-    last_adv_norm = None  # for histogram
+    # advantage normalization/clipping removed; no adv histogram
     last_ratio = None      # for histogram (taken-action ratio)
     last_logits_centered_a = None  # for histogram (taken-action centered logit)
 
@@ -246,7 +240,6 @@ def train(is_first_run: bool = False):
 
         def train_batch(obs, actions, masks, A_offline, G, logits_old):
             nonlocal steps, pb
-            nonlocal last_adv_norm
 
             obs = obs.to(dtype=torch.float32, device=device)
             actions = actions.to(dtype=torch.int64, device=device)
@@ -272,13 +265,8 @@ def train(is_first_run: bool = False):
 
                 # value and advantage
                 V = value(phi)
-                # Advantage from snapshot (GAE/MC): normalize per minibatch and clip
-                A_raw = A_offline.detach()
-                A_mean = A_raw.mean()
-                A_std = A_raw.std(unbiased=False) + 1e-8
-                A_norm = (A_raw - A_mean) / A_std
-                clip_mask = (A_norm.abs() > adv_clip)
-                A = A_norm.clamp(-adv_clip, adv_clip)
+                # Advantage from snapshot (GAE/MC): use as-is (no normalization/clipping)
+                A = A_offline.detach()
 
                 # gating: ratio is symmetric; logit is directional by sign(A)
                 logits_centered_a = logits_centered[torch.arange(logits_centered.shape[0]), actions]
@@ -322,16 +310,10 @@ def train(is_first_run: bool = False):
                 stats['gate_accept_rate'] += gate.float().mean().detach()
                 stats['ratio_violation_rate'] += (~ratio_ok).float().mean().detach()
                 stats['logit_violation_rate'] += (~logit_ok).float().mean().detach()
-                # Monitor normalized A (pre-clip)
-                stats['adv_norm_mean'] += A_norm.mean().detach()
-                stats['adv_norm_std'] += A_norm.std(unbiased=False).detach()
-                stats['adv_clip_frac'] += clip_mask.float().mean().detach()
                 # KL(old||new)
                 stats['kl_old_new'] += kl_old_new.detach()
                 # Valid action count
                 stats['valid_count_mean'] += masks.sum(-1).float().mean().detach()
-                # Keep the last normalized A for histogram logging
-                last_adv_norm = A_norm.detach().to('cpu')
                 # Keep ratio/logits for histogram logging
                 last_ratio = ratio.detach().to('cpu')
                 last_logits_centered_a = logits_centered_a.detach().to('cpu')
@@ -377,15 +359,9 @@ def train(is_first_run: bool = False):
                 writer.add_scalar('ach/gate_accept_rate', stats['gate_accept_rate'] / save_every, steps)
                 writer.add_scalar('ach/ratio_violation_rate', stats['ratio_violation_rate'] / save_every, steps)
                 writer.add_scalar('ach/logit_violation_rate', stats['logit_violation_rate'] / save_every, steps)
-                # A (advantage) distribution monitoring (normalized, pre-clip)
-                writer.add_scalar('ach/adv_norm_mean', stats['adv_norm_mean'] / save_every, steps)
-                writer.add_scalar('ach/adv_norm_std', stats['adv_norm_std'] / save_every, steps)
-                writer.add_scalar('ach/adv_clip_frac', stats['adv_clip_frac'] / save_every, steps)
                 # KL and valid action count
                 writer.add_scalar('ach/kl_old_new', stats['kl_old_new'] / save_every, steps)
                 writer.add_scalar('ach/valid_count_mean', stats['valid_count_mean'] / save_every, steps)
-                if last_adv_norm is not None:
-                    writer.add_histogram('ach/adv_norm', last_adv_norm, steps)
                 if last_ratio is not None:
                     writer.add_histogram('ach/ratio', last_ratio, steps)
                 if last_logits_centered_a is not None:
