@@ -204,6 +204,26 @@ def train(is_first_run: bool = False):
         file_list = [path.join(dirname, p) for p in os.listdir(dirname)]
         logging.info(f'[ACH] drained files: {len(file_list):,} (v{data_ver})')
 
+        # Determine player filter: include 'trainee' and, if human data mixed, also human players.
+        try:
+            human_ratio = float(config['online'].get('human_data_ratio', 0.0))
+        except Exception:
+            human_ratio = 0.0
+        human_ratio = max(0.0, min(1.0, human_ratio))
+
+        if human_ratio > 0.0:
+            player_names_set = set(['trainee'])
+            try:
+                for filename in config['dataset'].get('player_names_files', []):
+                    with open(filename) as f:
+                        player_names_set.update(filtered_trimmed_lines(f))
+            except Exception:
+                pass
+            # If only 'trainee' is known, disable filtering to include all players
+            player_names_filter = None if len(player_names_set) <= 1 else list(sorted(player_names_set))
+        else:
+            player_names_filter = ['trainee']
+
         # Choose the matching snapshot by data_ver; if missing, pick the most recent
         if data_ver in deployed_snapshots:
             snapshot_states = deployed_snapshots[data_ver]
@@ -220,7 +240,7 @@ def train(is_first_run: bool = False):
             file_batch_size=file_batch_size,
             reserve_ratio=reserve_ratio,
             sample_ratio=sample_ratio,
-            player_names=['trainee'],
+            player_names=player_names_filter,
             num_epochs=num_epochs,
             enable_augmentation=enable_augmentation,
             augmented_first=augmented_first,

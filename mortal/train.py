@@ -154,8 +154,31 @@ def train(is_first_run=False):
 
         player_names = []
         if online:
-            player_names = ['trainee']
             dirname = drain()
+            # When mixing human data into drained files, expand player filter accordingly.
+            try:
+                human_ratio = float(config['online'].get('human_data_ratio', 0.0))
+            except Exception:
+                human_ratio = 0.0
+            human_ratio = max(0.0, min(1.0, human_ratio))
+
+            if human_ratio > 0.0:
+                # Build union of 'trainee' and offline player names (if provided).
+                player_names_set = set(['trainee'])
+                try:
+                    for filename in config['dataset'].get('player_names_files', []):
+                        with open(filename) as f:
+                            player_names_set.update(filtered_trimmed_lines(f))
+                except Exception:
+                    pass
+                # If only 'trainee' is present and no offline names configured, include all players.
+                if len(player_names_set) <= 1:
+                    player_names = None
+                else:
+                    player_names = list(sorted(player_names_set))
+            else:
+                player_names = ['trainee']
+
             file_list = list(map(lambda p: path.join(dirname, p), os.listdir(dirname)))
         else:
             player_names_set = set()

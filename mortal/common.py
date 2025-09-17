@@ -2,6 +2,10 @@ import torch
 import socket
 import struct
 import time
+import os
+import random
+import shutil
+from glob import glob
 from typing import *
 from io import BytesIO
 from functools import partial
@@ -46,7 +50,77 @@ def drain_with_version():
         if msg['count'] == 0:
             time.sleep(5)
             continue
-        return msg['drain_dir'], msg.get('param_version')
+        drain_dir = msg['drain_dir']
+        param_version = msg.get('param_version')
+
+        # Optionally augment drained self-play with human offline data.
+        # Ratio is in [0,1]; 0 -> no human data, 1 -> add the same number of human files
+        # as the number of drained self-play files.
+        try:
+            ratio = float(config['online'].get('human_data_ratio', 0.0))
+        except Exception:
+            ratio = 0.0
+        ratio = max(0.0, min(1.0, ratio))
+
+        if ratio > 0.0:
+            try:
+                self_count = int(msg.get('count') or 0)
+                if self_count <= 0:
+                    # As a fallback, count files in the directory
+                    self_count = len(os.listdir(drain_dir))
+                add_count = int(self_count * ratio)
+                if add_count > 0:
+                    # Resolve offline dataset file list once
+                    offline_files = _get_offline_file_list()
+                    if offline_files:
+                        # Sample without replacement up to available count
+                        add_count = min(add_count, len(offline_files))
+                        selected = random.sample(offline_files, add_count)
+                        # Link or copy into the drained directory
+                        os.makedirs(drain_dir, exist_ok=True)
+                        for i, src in enumerate(selected):
+                            base = os.path.basename(src)
+                            dst = os.path.join(drain_dir, f'human_{i:06d}_{base}')
+                            if not os.path.exists(dst):
+                                try:
+                                    os.symlink(os.path.abspath(src), dst)
+                                except Exception:
+                                    # Fallback: copy if symlink unavailable
+                                    try:
+                                        shutil.copyfile(src, dst)
+                                    except Exception:
+                                        pass
+            except Exception:
+                # Best-effort: if anything goes wrong, proceed with original drain
+                pass
+
+        return drain_dir, param_version
+
+
+# Cache for offline file listing to avoid repeated scans/loads during training
+_OFFLINE_FILE_LIST_CACHE: Optional[List[str]] = None
+
+def _get_offline_file_list() -> List[str]:
+    global _OFFLINE_FILE_LIST_CACHE
+    if _OFFLINE_FILE_LIST_CACHE is not None:
+        return _OFFLINE_FILE_LIST_CACHE
+
+    files: List[str] = []
+    try:
+        file_index = config['dataset'].get('file_index')
+        if file_index and os.path.exists(file_index):
+            obj = torch.load(file_index, weights_only=True, map_location=torch.device('cpu'))
+            files = list(obj.get('file_list', []))
+        else:
+            globs = config['dataset'].get('globs', [])
+            for pat in globs:
+                files.extend(glob(pat, recursive=True))
+            files.sort()
+    except Exception:
+        files = []
+
+    _OFFLINE_FILE_LIST_CACHE = files
+    return files
 
 def submit_param(mortal, dqn, is_idle=False):
     """Submit parameters to the server and return the new param_version.

@@ -89,6 +89,7 @@ state_file = '/path/to/baseline.pth'
 [online]
 history_window = 50
 enable_compile = false
+human_data_ratio = 0.0  # 0.0-1.0: add this fraction of offline human files per drain (relative to self-play count)
 
 [online.remote]
 host = '127.0.0.1'
