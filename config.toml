@@ -1,13 +1,13 @@
 [control]
 version = 4
-state_file = 'models/test_mortal61.pth'
-best_state_file = 'models/test_best61.pth'
-tensorboard_dir = 'logs/tensorboard_test61'
+state_file = 'models/test_mortal77.pth'
+best_state_file = 'models/test_best77.pth'
+tensorboard_dir = 'logs/tensorboard_test77'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
-save_every = 100
-test_every = 4000
+save_every = 1000
+test_every = 5000
 submit_every = 400
 print_every = 100
 device = 'cuda:0'
@@ -17,14 +17,15 @@ enable_compile = false
 print_states = true
 online = true
 algo = 'ach'
+# algo = 'normal'
 
 [ach]
 eta = 1              # Hedge 係数
 logit_threshold = 6.0  # ロジットしきい値（±値でクリップ）
 ratio_clip = 0.5       # PPO の比率クリップ ε
 adv_clip = 5.0         # アドバンテージのミニバッチ正規化後クリップ幅
-gae_lambda = 0.95      # 便宜上保持（実質 MC）
-entropy_coef = 2e-2    # エントロピー係数 β
+gae_lambda = 0.75      # 便宜上保持（実質 MC）
+entropy_coef = 1e-2    # エントロピー係数 β
 value_coef = 0.5       # 価値損失の係数 α
 batch_size = 2048
 
@@ -44,6 +45,7 @@ repeats = 1
 [online]
 history_window = 50 
 enable_compile = false 
+human_data_ratio = 1.0  # 0.0-1.0: add this fraction of offline human files per drain
 
 [online.remote]
 host = '127.0.0.1'  # サーバーのホスト
@@ -112,10 +114,10 @@ max_grad_norm = 1.0
 [optim.scheduler]
 # peak = 0.00001
 # final = 0.00001
-# peak = 0.000001
-# final = 0.000001
-peak = 0.00025
-final = 0.00025
+peak = 0.000001
+final = 0.000001
+# peak = 0.00025
+# final = 0.00025
 warm_up_steps = 0
 max_steps = 1000000
 
