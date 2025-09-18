@@ -1,13 +1,13 @@
 [control]
 version = 4
-state_file = 'models/test_mortal77.pth'
-best_state_file = 'models/test_best77.pth'
-tensorboard_dir = 'logs/tensorboard_test77'
+state_file = 'models/test_mortal78.pth'
+best_state_file = 'models/test_best78.pth'
+tensorboard_dir = 'logs/tensorboard_test78'
 steps = 300000
 batch_size = 2048
 opt_step_every = 4
 save_every = 1000
-test_every = 5000
+test_every = 10000
 submit_every = 400
 print_every = 100
 device = 'cuda:0'
@@ -15,8 +15,9 @@ enable_amp = true
 enable_cudnn_benchmark = true
 enable_compile = false
 print_states = true
-online = true
-algo = 'ach'
+online = false
+algo = 'iql'
+# algo = 'ach'
 # algo = 'normal'
 
 [ach]
@@ -28,6 +29,20 @@ gae_lambda = 0.75      # 便宜上保持（実質 MC）
 entropy_coef = 1e-2    # エントロピー係数 β
 value_coef = 0.5       # 価値損失の係数 α
 batch_size = 2048
+
+[iql]
+batch_size = 2048
+expectile = 0.7
+beta = 3.0
+adv_clip = 5.0
+weight_clip = 50.0
+policy_coef = 1.0
+value_coef = 1.0
+q_coef = 1.0
+entropy_coef = 0.0
+target_update_tau = 0.005
+target_update_period = 1
+eval_temperature = 1.0
 
 [baseline.train]
 device = 'cuda:0'
@@ -45,7 +60,7 @@ repeats = 1
 [online]
 history_window = 50 
 enable_compile = false 
-human_data_ratio = 1.0  # 0.0-1.0: add this fraction of offline human files per drain
+human_data_ratio = 0.0  # 0.0-1.0: add this fraction of offline human files per drain
 
 [online.remote]
 host = '127.0.0.1'  # サーバーのホスト
@@ -62,10 +77,10 @@ sample_reuse_threshold = 0
 [dataset]
 globs = ['data/training/**/*.json.gz']
 enable_augmentation = true
-file_batch_size = 50
+file_batch_size = 20
 num_workers = 4
 file_index = 'cache/main_file_index.pth'
-reserve_ratio = 0.5
+reserve_ratio = 0.0
 sample_ratio = 1.0  # 0.0-1.0: 局面のサンプリング割合（ACHローダ用）
 num_epochs = 1
 augmented_first = false
@@ -96,7 +111,7 @@ hidden_size = 1024
 next_rank_weight = 0.2
 
 [test_play]
-games = 1000
+games = 10000
 log_dir = 'logs/test_play'
 
 [freeze_bn]

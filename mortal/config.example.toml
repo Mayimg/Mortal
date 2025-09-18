@@ -60,6 +60,20 @@ min_q_weight = 5
 [aux]
 next_rank_weight = 0.2
 
+[iql]
+batch_size = 512
+expectile = 0.7
+beta = 3.0
+adv_clip = 5.0
+weight_clip = 50.0
+policy_coef = 1.0
+value_coef = 1.0
+q_coef = 1.0
+entropy_coef = 0.0
+target_update_tau = 0.005
+target_update_period = 1
+eval_temperature = 1.0
+
 [freeze_bn]
 # `true` in online training
 mortal = false

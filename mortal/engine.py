@@ -46,13 +46,21 @@ class MortalEngine:
 
         # ACH policy integration
         if policy_mode == 'auto':
-            self.policy_mode = 'ach' if isinstance(self.dqn, PolicyNet) else 'dqn'
+            if isinstance(self.dqn, PolicyNet):
+                inferred = getattr(self.dqn, 'policy_mode', None)
+                if inferred == 'iql':
+                    self.policy_mode = 'iql'
+                else:
+                    self.policy_mode = 'ach'
+            else:
+                self.policy_mode = 'dqn'
         else:
             self.policy_mode = policy_mode
         if ach_eta is None:
             self.ach_eta = float(config.get('ach', {}).get('eta', 1.0))
         else:
             self.ach_eta = float(ach_eta)
+        self.iql_temperature = float(config.get('iql', {}).get('eval_temperature', 1.0))
 
     def react_batch(self, obs, masks, invisible_obs):
         try:
@@ -81,15 +89,19 @@ class MortalEngine:
                 q_out = self.dqn(latent, masks)
             case 2 | 3 | 4:
                 phi = self.brain(obs)
-                if self.policy_mode == 'ach':
+                if self.policy_mode in ('ach', 'iql'):
                     logits = self.dqn(phi, masks)
                     # Ensure invalid actions are -inf and apply Hedge scale η
                     logits = logits.masked_fill(~masks, -torch.inf)
-                    logits = self.ach_eta * logits
+                    if self.policy_mode == 'ach':
+                        logits = self.ach_eta * logits
+                    else:
+                        temperature = max(self.iql_temperature, 1e-3)
+                        logits = logits / temperature
                 else:
                     q_out = self.dqn(phi, masks)
 
-        if self.policy_mode == 'ach':
+        if self.policy_mode in ('ach', 'iql'):
             # Sample from Softmax(η·y). Optional epsilon chooses greedy vs sample.
             if self.boltzmann_epsilon > 0:
                 is_greedy = torch.full((batch_size,), 1 - self.boltzmann_epsilon, device=self.device).bernoulli().to(torch.bool)

@@ -77,6 +77,20 @@ hidden_size = 1024    # DQN head hidden size
 [aux]
 hidden_size = 1024    # Auxiliary network hidden size
 
+[iql]
+batch_size = 512
+expectile = 0.7
+beta = 3.0
+adv_clip = 5.0
+weight_clip = 50.0
+policy_coef = 1.0
+value_coef = 1.0
+q_coef = 1.0
+entropy_coef = 0.0
+target_update_tau = 0.005
+target_update_period = 1
+eval_temperature = 1.0
+
 [optim]
 lr = 0.00001          # Learning rate (very important!)
 weight_decay = 0.00001

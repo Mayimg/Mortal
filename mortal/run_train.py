@@ -21,8 +21,11 @@ def _set_mp_start_method():
             # As a last resort, proceed without changing the method
             pass
 
-if config['control'].get('algo', '').lower() == 'ach':
+algo = config['control'].get('algo', '').lower()
+if algo == 'ach':
     from mortal.train_ach import train
+elif algo == 'iql':
+    from mortal.train_iql_offline import train
 else:
     from mortal.train import train
 
