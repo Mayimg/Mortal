@@ -143,11 +143,29 @@ def train(is_first_run: bool = False):
             q_head.load_state_dict(state['q_head'])
         if 'optimizer' in state:
             optimizer.load_state_dict(state['optimizer'])
+        if 'scaler' in state:
+            try:
+                scaler.load_state_dict(state['scaler'])
+            except Exception:
+                pass
         steps = state.get('steps', 0)
         best_perf = state.get('best_perf', best_perf)
 
-        mortal_target.load_state_dict(mortal.state_dict())
-        value_target.load_state_dict(value_head.state_dict())
+        # Restore target networks if available; otherwise initialize from online nets
+        if 'mortal_target' in state:
+            try:
+                mortal_target.load_state_dict(state['mortal_target'])
+            except Exception:
+                mortal_target.load_state_dict(mortal.state_dict())
+        else:
+            mortal_target.load_state_dict(mortal.state_dict())
+        if 'value_target' in state:
+            try:
+                value_target.load_state_dict(state['value_target'])
+            except Exception:
+                value_target.load_state_dict(value_head.state_dict())
+        else:
+            value_target.load_state_dict(value_head.state_dict())
 
     optimizer.zero_grad(set_to_none=True)
 
@@ -341,6 +359,9 @@ def train(is_first_run: bool = False):
                     'value_head': value_head.state_dict(),
                     'q_head': q_head.state_dict(),
                     'optimizer': optimizer.state_dict(),
+                    'mortal_target': mortal_target.state_dict(),
+                    'value_target': value_target.state_dict(),
+                    'scaler': scaler.state_dict(),
                     'steps': steps,
                     'timestamp': datetime.now().timestamp(),
                     'best_perf': best_perf,

@@ -31,6 +31,10 @@ TARGET_TAGS = [
     "ach/grad_norm_policy",
     "ach/grad_norm_value",
     "ach/grad_norm_mortal",
+    "iql/policy_loss",
+    "iql/value_loss",
+    "iql/q_loss",
+    "iql/advantage",
 ]
 
 def load_scalars(logdir, tags):
