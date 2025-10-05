@@ -143,6 +143,9 @@ def train(is_first_run: bool = False):
             q_head.load_state_dict(state['q_head'])
         if 'optimizer' in state:
             optimizer.load_state_dict(state['optimizer'])
+            # Override only the learning rate while preserving optimizer moments
+            for g in optimizer.param_groups:
+                g['lr'] = lr
         if 'scaler' in state:
             try:
                 scaler.load_state_dict(state['scaler'])

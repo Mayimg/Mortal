@@ -124,6 +124,9 @@ def train(is_first_run: bool = False):
             value.load_state_dict(state['value'])
         if 'optimizer' in state:
             optimizer.load_state_dict(state['optimizer'])
+            # Override only the learning rate while preserving optimizer moments
+            for g in optimizer.param_groups:
+                g['lr'] = lr
         steps = state.get('steps', 0)
         best_perf = state.get('best_perf', best_perf)
 
@@ -365,4 +368,3 @@ if __name__ == '__main__':
         train()
     except KeyboardInterrupt:
         pass
-
