@@ -1,8 +1,8 @@
 [control]
 version = 4
-state_file = 'models/test_mortal83.pth'
-best_state_file = 'models/test_best83.pth'
-tensorboard_dir = 'logs/tensorboard_test83'
+state_file = 'models/test_mortal85.pth'
+best_state_file = 'models/test_best85.pth'
+tensorboard_dir = 'logs/tensorboard_test85'
 steps = 300000
 batch_size = 2048
 opt_step_every = 1
@@ -16,9 +16,9 @@ enable_cudnn_benchmark = true
 enable_compile = false
 print_states = true
 online = false
-algo = 'iql'
+# algo = 'iql'
 # algo = 'ach'
-# algo = 'normal'
+algo = 'normal'
 
 [ach]
 eta = 1              # Hedge 係数
@@ -77,11 +77,11 @@ sample_reuse_threshold = 0
 [dataset]
 globs = ['data/training/**/*.json.gz']
 enable_augmentation = true
-file_batch_size = 30
+file_batch_size = 40
 num_workers = 4
 file_index = 'cache/main_file_index.pth'
-reserve_ratio = 0.0
-sample_ratio = 1.0  # 0.0-1.0: 局面のサンプリング割合（ACHローダ用）
+reserve_ratio = 0.5
+sample_ratio = 0.0  # 0.0-1.0: 局面のサンプリング割合（ACHローダ用）
 num_epochs = 1
 augmented_first = false
 player_names_files = []
@@ -118,8 +118,8 @@ log_dir = 'logs/test_play'
 mortal = false
 
 [optim]
-# lr = 0.00001
-lr = 0.0000025
+lr = 0.00001
+# lr = 0.000001
 weight_decay = 0.00001
 lr_scheduler = 'constant'
 eps = 1e-8

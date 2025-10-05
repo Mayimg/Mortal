@@ -421,8 +421,8 @@ def train(is_first_run=False):
                             f'saving to {best_state_file}'
                         )
                         shutil.copy(state_file, best_state_file)
-                        submit_param(mortal, dqn, is_idle=False)
-                        logging.info('param has been submitted')
+                        # submit_param(mortal, dqn, is_idle=False)
+                        # logging.info('param has been submitted')
                     if online:
                         # BUG: This is a bug with unknown reason. When training
                         # in online mode, the process will get stuck here. This
