@@ -278,13 +278,20 @@ class DQN(nn.Module):
         return q
 
 class GRP(nn.Module):
-    def __init__(self, hidden_size=64, num_layers=2):
+    def __init__(self, hidden_size=256, num_layers=2):
         super().__init__()
-        self.rnn = nn.GRU(input_size=GRP_SIZE, hidden_size=hidden_size, num_layers=num_layers, batch_first=True)
-        self.fc = nn.Sequential(
-            nn.Linear(hidden_size * num_layers, hidden_size * num_layers),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_size * num_layers, 24),
+        # 4-layer MLP with Mish; `num_layers` kept for config compatibility (unused)
+        width = int(hidden_size)
+        self.mlp = nn.Sequential(
+            nn.Linear(GRP_SIZE, width),
+            nn.Mish(inplace=True),
+            nn.Linear(width, width),
+            nn.Mish(inplace=True),
+            nn.Linear(width, width),
+            nn.Mish(inplace=True),
+            nn.Linear(width, width),
+            nn.Mish(inplace=True),
+            nn.Linear(width, 24),
         )
         for mod in self.modules():
             mod.to(torch.float64)
@@ -295,10 +302,9 @@ class GRP(nn.Module):
         self.register_buffer('perms', perms)     # (24, 4)
         self.register_buffer('perms_t', perms_t) # (4, 24)
 
-    # input: [grand_kyoku, honba, kyotaku, s[0], s[1], s[2], s[3]]
-    # grand_kyoku: E1 = 0, S4 = 7, W4 = 11
-    # s is 2.5 at E1
-    # s[0] is score of player id 0
+    # input features per step:
+    #   base 7 dims + 16 rank one-hot + 168 agari improvement (total 191)
+    # Consumes only the last step per sequence and outputs 24-class logits.
     def forward(self, inputs: List[Tensor]):
         lengths = torch.tensor([t.shape[0] for t in inputs], dtype=torch.int64)
         inputs = pad_sequence(inputs, batch_first=True)
@@ -306,9 +312,12 @@ class GRP(nn.Module):
         return self.forward_packed(packed_inputs)
 
     def forward_packed(self, packed_inputs):
-        _, state = self.rnn(packed_inputs)
-        state = state.transpose(0, 1).flatten(1)
-        logits = self.fc(state)
+        # Unpack and take the last step features of each sequence
+        padded, lengths = torch.nn.utils.rnn.pad_packed_sequence(packed_inputs, batch_first=True)
+        batch_indices = torch.arange(padded.shape[0], device=padded.device)
+        last_idx = lengths.to(device=padded.device) - 1
+        last_feat = padded[batch_indices, last_idx]  # (B, GRP_SIZE)
+        logits = self.mlp(last_feat)
         return logits
 
     # (N, 24) -> (N, player, rank_prob)

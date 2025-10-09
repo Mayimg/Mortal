@@ -169,17 +169,18 @@ enable_rule_based_agari_guard = true
 enabled = false
 
 [grp]
-state_file = 'models/grp.pth'
+state_file = 'models/grp05.pth'
+best_state_file = 'models/best_grp05.pth'
 
 [grp.control]
 device = 'cuda:0'
-batch_size = 512
+batch_size = 4096
 save_every = 2000
 print_every = 10
 val_interval = 100
 val_steps = 400
 enable_cudnn_benchmark = true
-tensorboard_dir = 'logs/tensorboard_grp'
+tensorboard_dir = 'logs/tensorboard_grp05'
 
 [grp.dataset]
 train_globs = ['data/training/**/*.json.gz']
@@ -191,9 +192,9 @@ file_batch_size = 50
 file_index = 'cache/grp_file_index.pth'
 
 [grp.network]
-hidden_size = 64
+hidden_size = 256
 num_layers = 2
 
 [grp.optim]
-lr = 0.002
+lr = 0.00002
 weight_decay = 0.00001

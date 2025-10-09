@@ -13,7 +13,11 @@ pub const ACTION_SPACE: usize = 37 // discard | kan (choice)
                               + 1  // ryukyoku
                               + 1; // pass
 // = 46
-pub const GRP_SIZE: usize = 7;
+// GRP feature size
+//  - 7 base features: [grand_kyoku, honba, kyotaku, score0/1e4, score1/1e4, score2/1e4, score3/1e4]
+//  - 16 rank one-hot (4 players x 4 ranks)
+//  - 168 agari-improvement features (4 players x 42 patterns)
+pub const GRP_SIZE: usize = 7 + 16 + 168; // = 191
 
 #[pyfunction]
 #[inline]

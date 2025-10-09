@@ -1,6 +1,7 @@
 from . import prelude
 
 import random
+import shutil
 import torch
 import logging
 from os import path
@@ -96,6 +97,8 @@ def train():
     optimizer = optim.AdamW(grp.parameters())
 
     state_file = cfg['state_file']
+    best_state_file = cfg.get('best_state_file')
+    best_val_acc = 0.0
     if path.exists(state_file):
         state = torch.load(state_file, weights_only=True, map_location=device)
         timestamp = datetime.fromtimestamp(state['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
@@ -103,6 +106,7 @@ def train():
         grp.load_state_dict(state['model'])
         optimizer.load_state_dict(state['optimizer'])
         steps = state['steps']
+        best_val_acc = float(state.get('best_val_acc', best_val_acc))
     else:
         steps = 0
 
@@ -215,9 +219,10 @@ def train():
                 'train': stats['train_loss'] / save_every,
                 'val': stats['val_loss'] / val_steps,
             }, steps)
+            cur_val_acc = (stats['val_acc'] / val_steps).item()
             writer.add_scalars('acc', {
                 'train': stats['train_acc'] / save_every,
-                'val': stats['val_acc'] / val_steps,
+                'val': cur_val_acc,
             }, steps)
             writer.add_scalar('lr', lr, steps)
             writer.flush()
@@ -232,8 +237,23 @@ def train():
                 'optimizer': optimizer.state_dict(),
                 'steps': steps,
                 'timestamp': datetime.now().timestamp(),
+                'best_val_acc': best_val_acc,
             }
             torch.save(state, state_file)
+
+            # Save best checkpoint when validation accuracy improves
+            if best_state_file is not None and cur_val_acc >= best_val_acc:
+                past = best_val_acc
+                best_val_acc = cur_val_acc
+                state['best_val_acc'] = best_val_acc
+                torch.save(state, state_file)  # ensure best_val_acc is persisted
+                logging.info(
+                    f'[GRP] val_acc improved: {past:.6f} -> {best_val_acc:.6f}, copying to {best_state_file}'
+                )
+                try:
+                    shutil.copy(state_file, best_state_file)
+                except Exception as e:
+                    logging.warning(f'failed to copy best state: {e}')
             pb = tqdm(total=save_every, desc='TRAIN')
     pb.close()
 
