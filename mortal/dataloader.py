@@ -1,4 +1,5 @@
 import random
+from os import path
 import torch
 import numpy as np
 from torch.utils.data import IterableDataset
@@ -39,7 +40,9 @@ class FileDatasetsIter(IterableDataset):
     def build_iter(self):
         # do not put it in __init__, it won't work on Windows
         self.grp = GRP(**config['grp']['network'])
-        grp_state = torch.load(config['grp']['state_file'], weights_only=True, map_location=torch.device('cpu'))
+        grp_cfg = config['grp']
+        grp_state_path = grp_cfg.get('best_state_file') if grp_cfg.get('best_state_file') and path.exists(grp_cfg.get('best_state_file')) else grp_cfg['state_file']
+        grp_state = torch.load(grp_state_path, weights_only=True, map_location=torch.device('cpu'))
         self.grp.load_state_dict(grp_state['model'])
         self.reward_calc = RewardCalculator(self.grp, self.pts)
 
@@ -103,7 +106,8 @@ class FileDatasetsIter(IterableDataset):
                 assert len(kyoku_rewards) >= at_kyoku[-1] + 1 # usually they are equal, unless there is no action in the last kyoku
 
                 final_scores = grp.take_final_scores()
-                scores_seq = np.concatenate((grp_feature[:, 3:] * 1e4, [final_scores]))
+                # only the 4 score columns are at indices 3..6
+                scores_seq = np.concatenate((grp_feature[:, 3:7] * 1e4, [final_scores]))
                 rank_by_player_seq = (-scores_seq).argsort(-1, kind='stable').argsort(-1, kind='stable')
                 player_ranks = rank_by_player_seq[:, player_id]
 

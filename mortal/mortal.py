@@ -6,6 +6,7 @@ import json
 import torch
 from datetime import datetime, timezone
 from .model import Brain, DQN, GRP
+from os import path
 from .engine import MortalEngine
 from .common import filtered_trimmed_lines
 from .libriichi.mjai import Bot
@@ -69,7 +70,9 @@ def main():
 
     if review_mode:
         grp = GRP(**config['grp']['network'])
-        grp_state = torch.load(config['grp']['state_file'], weights_only=True, map_location=torch.device('cpu'))
+        grp_cfg = config['grp']
+        grp_state_path = grp_cfg.get('best_state_file') if grp_cfg.get('best_state_file') and path.exists(grp_cfg.get('best_state_file')) else grp_cfg['state_file']
+        grp_state = torch.load(grp_state_path, weights_only=True, map_location=torch.device('cpu'))
         grp.load_state_dict(grp_state['model'])
 
         ins = Grp.load_log('\n'.join(logs))

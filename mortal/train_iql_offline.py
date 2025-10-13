@@ -388,6 +388,44 @@ def train(is_first_run: bool = False):
                     logging.info(f'avg pt: {avg_pt:.6}')
                     writer.add_scalar('test_play/avg_ranking', stat.avg_rank, steps)
                     writer.add_scalar('test_play/avg_pt', avg_pt, steps)
+                    writer.add_scalars('test_play/ranking', {
+                        '1st': stat.rank_1_rate,
+                        '2nd': stat.rank_2_rate,
+                        '3rd': stat.rank_3_rate,
+                        '4th': stat.rank_4_rate,
+                    }, steps)
+                    writer.add_scalars('test_play/behavior', {
+                        'agari': stat.agari_rate,
+                        'houjuu': stat.houjuu_rate,
+                        'fuuro': stat.fuuro_rate,
+                        'riichi': stat.riichi_rate,
+                    }, steps)
+                    writer.add_scalars('test_play/agari_point', {
+                        'overall': stat.avg_point_per_agari,
+                        'riichi': stat.avg_point_per_riichi_agari,
+                        'fuuro': stat.avg_point_per_fuuro_agari,
+                        'dama': stat.avg_point_per_dama_agari,
+                    }, steps)
+                    writer.add_scalar('test_play/houjuu_point', stat.avg_point_per_houjuu, steps)
+                    writer.add_scalar('test_play/point_per_round', stat.avg_point_per_round, steps)
+                    writer.add_scalars('test_play/key_step', {
+                        'agari_jun': stat.avg_agari_jun,
+                        'houjuu_jun': stat.avg_houjuu_jun,
+                        'riichi_jun': stat.avg_riichi_jun,
+                    }, steps)
+                    writer.add_scalars('test_play/riichi', {
+                        'agari_after_riichi': stat.agari_rate_after_riichi,
+                        'houjuu_after_riichi': stat.houjuu_rate_after_riichi,
+                        'chasing_riichi': stat.chasing_riichi_rate,
+                        'riichi_chased': stat.riichi_chased_rate,
+                    }, steps)
+                    writer.add_scalar('test_play/riichi_point', stat.avg_riichi_point, steps)
+                    writer.add_scalars('test_play/fuuro', {
+                        'agari_after_fuuro': stat.agari_rate_after_fuuro,
+                        'houjuu_after_fuuro': stat.houjuu_rate_after_fuuro,
+                    }, steps)
+                    writer.add_scalar('test_play/fuuro_num', stat.avg_fuuro_num, steps)
+                    writer.add_scalar('test_play/fuuro_point', stat.avg_fuuro_point, steps)
                     writer.flush()
 
                     if better:

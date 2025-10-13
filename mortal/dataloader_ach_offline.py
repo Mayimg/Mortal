@@ -1,4 +1,5 @@
 import random
+from os import path
 from typing import List, Optional
 
 import numpy as np
@@ -67,7 +68,9 @@ class AchOfflineFileDatasetsIter(IterableDataset):
     def _build_iter(self):
         # Build GRP + RewardCalculator on CPU for expected-pts per-kyoku.
         grp = GRP(**config['grp']['network'])
-        grp_state = torch.load(config['grp']['state_file'], weights_only=True, map_location=torch.device('cpu'))
+        grp_cfg = config['grp']
+        grp_state_path = grp_cfg.get('best_state_file') if grp_cfg.get('best_state_file') and path.exists(grp_cfg.get('best_state_file')) else grp_cfg['state_file']
+        grp_state = torch.load(grp_state_path, weights_only=True, map_location=torch.device('cpu'))
         grp.load_state_dict(grp_state['model'])
         self.reward_calc = RewardCalculator(grp, self.pts)
 
@@ -174,4 +177,3 @@ def worker_init_fn_ach_offline(*args, **kwargs):
     start = worker_info.id * per_worker
     end = start + per_worker
     dataset.file_list = dataset.file_list[start:end]
-

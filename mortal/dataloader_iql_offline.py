@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import random
+from os import path
 from typing import List, Optional
 
 import numpy as np
@@ -54,9 +56,16 @@ class IQLOfflineDataset(IterableDataset):
         return self._iterator
 
     def _build_iter(self):
+        # Avoid CPU oversubscription: each worker is a process, and the Rust
+        # GameplayLoader uses rayon for parallel IO/parse. Limit rayon threads
+        # per worker to 1 unless the user sets it explicitly.
+        # os.environ.setdefault("RAYON_NUM_THREADS", "1")
+
         grp = GRP(**config['grp']['network'])
+        grp_cfg = config['grp']
+        grp_state_path = grp_cfg.get('best_state_file') if grp_cfg.get('best_state_file') and path.exists(grp_cfg.get('best_state_file')) else grp_cfg['state_file']
         grp_state = torch.load(
-            config['grp']['state_file'],
+            grp_state_path,
             weights_only=True,
             map_location=torch.device('cpu'),
         )
