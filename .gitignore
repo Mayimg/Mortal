@@ -21,3 +21,5 @@ __pycache__
 /logs
 /.claude
 online_training_data/*
+
+mjai_bots/
